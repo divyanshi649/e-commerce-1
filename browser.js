@@ -1,185 +1,158 @@
+/* eslint-env browser */
+
+'use strict';
+
+require('./driver').set(require('./drivers/browser'));
+
+const DocumentProvider = require('./document_provider.js');
+const PromiseProvider = require('./promise_provider');
+
+DocumentProvider.setBrowser(true);
+
 /**
- * This is the web browser implementation of `debug()`.
+ * The Mongoose [Promise](#promise_Promise) constructor.
  *
- * Expose `debug()` as the module.
+ * @method Promise
+ * @api public
  */
 
-exports = module.exports = require('./debug');
-exports.log = log;
-exports.formatArgs = formatArgs;
-exports.save = save;
-exports.load = load;
-exports.useColors = useColors;
-exports.storage = 'undefined' != typeof chrome
-               && 'undefined' != typeof chrome.storage
-                  ? chrome.storage.local
-                  : localstorage();
+Object.defineProperty(exports, 'Promise', {
+  get: function() {
+    return PromiseProvider.get();
+  },
+  set: function(lib) {
+    PromiseProvider.set(lib);
+  }
+});
 
 /**
- * Colors.
- */
-
-exports.colors = [
-  'lightseagreen',
-  'forestgreen',
-  'goldenrod',
-  'dodgerblue',
-  'darkorchid',
-  'crimson'
-];
-
-/**
- * Currently only WebKit-based Web Inspectors, Firefox >= v31,
- * and the Firebug extension (any Firefox version) are known
- * to support "%c" CSS customizations.
+ * Storage layer for mongoose promises
  *
- * TODO: add a `localStorage` variable to explicitly enable/disable colors
+ * @method PromiseProvider
+ * @api public
  */
 
-function useColors() {
-  // NB: In an Electron preload script, document will be defined but not fully
-  // initialized. Since we know we're in Chrome, we'll just detect this case
-  // explicitly
-  if (typeof window !== 'undefined' && window.process && window.process.type === 'renderer') {
-    return true;
-  }
-
-  // is webkit? http://stackoverflow.com/a/16459606/376773
-  // document is undefined in react-native: https://github.com/facebook/react-native/pull/1632
-  return (typeof document !== 'undefined' && document.documentElement && document.documentElement.style && document.documentElement.style.WebkitAppearance) ||
-    // is firebug? http://stackoverflow.com/a/398120/376773
-    (typeof window !== 'undefined' && window.console && (window.console.firebug || (window.console.exception && window.console.table))) ||
-    // is firefox >= v31?
-    // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
-    (typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31) ||
-    // double check webkit in userAgent just in case we are in a worker
-    (typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/applewebkit\/(\d+)/));
-}
+exports.PromiseProvider = PromiseProvider;
 
 /**
- * Map %j to `JSON.stringify()`, since no Web Inspectors do that by default.
+ * The [MongooseError](#error_MongooseError) constructor.
+ *
+ * @method Error
+ * @api public
  */
 
-exports.formatters.j = function(v) {
-  try {
-    return JSON.stringify(v);
-  } catch (err) {
-    return '[UnexpectedJSONParseError]: ' + err.message;
+exports.Error = require('./error/index');
+
+/**
+ * The Mongoose [Schema](#schema_Schema) constructor
+ *
+ * ####Example:
+ *
+ *     const mongoose = require('mongoose');
+ *     const Schema = mongoose.Schema;
+ *     const CatSchema = new Schema(..);
+ *
+ * @method Schema
+ * @api public
+ */
+
+exports.Schema = require('./schema');
+
+/**
+ * The various Mongoose Types.
+ *
+ * ####Example:
+ *
+ *     const mongoose = require('mongoose');
+ *     const array = mongoose.Types.Array;
+ *
+ * ####Types:
+ *
+ * - [Array](/docs/schematypes.html#arrays)
+ * - [Buffer](/docs/schematypes.html#buffers)
+ * - [Embedded](/docs/schematypes.html#schemas)
+ * - [DocumentArray](/docs/api/documentarraypath.html)
+ * - [Decimal128](/docs/api.html#mongoose_Mongoose-Decimal128)
+ * - [ObjectId](/docs/schematypes.html#objectids)
+ * - [Map](/docs/schematypes.html#maps)
+ * - [Subdocument](/docs/schematypes.html#schemas)
+ *
+ * Using this exposed access to the `ObjectId` type, we can construct ids on demand.
+ *
+ *     const ObjectId = mongoose.Types.ObjectId;
+ *     const id1 = new ObjectId;
+ *
+ * @property Types
+ * @api public
+ */
+exports.Types = require('./types');
+
+/**
+ * The Mongoose [VirtualType](#virtualtype_VirtualType) constructor
+ *
+ * @method VirtualType
+ * @api public
+ */
+exports.VirtualType = require('./virtualtype');
+
+/**
+ * The various Mongoose SchemaTypes.
+ *
+ * ####Note:
+ *
+ * _Alias of mongoose.Schema.Types for backwards compatibility._
+ *
+ * @property SchemaTypes
+ * @see Schema.SchemaTypes #schema_Schema.Types
+ * @api public
+ */
+
+exports.SchemaType = require('./schematype.js');
+
+/**
+ * Internal utils
+ *
+ * @property utils
+ * @api private
+ */
+
+exports.utils = require('./utils.js');
+
+/**
+ * The Mongoose browser [Document](/api/document.html) constructor.
+ *
+ * @method Document
+ * @api public
+ */
+exports.Document = DocumentProvider();
+
+/**
+ * Return a new browser model. In the browser, a model is just
+ * a simplified document with a schema - it does **not** have
+ * functions like `findOne()`, etc.
+ *
+ * @method model
+ * @api public
+ * @param {String} name
+ * @param {Schema} schema
+ * @return Class
+ */
+exports.model = function(name, schema) {
+  class Model extends exports.Document {
+    constructor(obj, fields) {
+      super(obj, schema, fields);
+    }
   }
+  Model.modelName = name;
+
+  return Model;
 };
 
-
-/**
- * Colorize log arguments if enabled.
- *
- * @api public
+/*!
+ * Module exports.
  */
 
-function formatArgs(args) {
-  var useColors = this.useColors;
-
-  args[0] = (useColors ? '%c' : '')
-    + this.namespace
-    + (useColors ? ' %c' : ' ')
-    + args[0]
-    + (useColors ? '%c ' : ' ')
-    + '+' + exports.humanize(this.diff);
-
-  if (!useColors) return;
-
-  var c = 'color: ' + this.color;
-  args.splice(1, 0, c, 'color: inherit')
-
-  // the final "%c" is somewhat tricky, because there could be other
-  // arguments passed either before or after the %c, so we need to
-  // figure out the correct index to insert the CSS into
-  var index = 0;
-  var lastC = 0;
-  args[0].replace(/%[a-zA-Z%]/g, function(match) {
-    if ('%%' === match) return;
-    index++;
-    if ('%c' === match) {
-      // we only are interested in the *last* %c
-      // (the user may have provided their own)
-      lastC = index;
-    }
-  });
-
-  args.splice(lastC, 0, c);
-}
-
-/**
- * Invokes `console.log()` when available.
- * No-op when `console.log` is not a "function".
- *
- * @api public
- */
-
-function log() {
-  // this hackery is required for IE8/9, where
-  // the `console.log` function doesn't have 'apply'
-  return 'object' === typeof console
-    && console.log
-    && Function.prototype.apply.call(console.log, console, arguments);
-}
-
-/**
- * Save `namespaces`.
- *
- * @param {String} namespaces
- * @api private
- */
-
-function save(namespaces) {
-  try {
-    if (null == namespaces) {
-      exports.storage.removeItem('debug');
-    } else {
-      exports.storage.debug = namespaces;
-    }
-  } catch(e) {}
-}
-
-/**
- * Load `namespaces`.
- *
- * @return {String} returns the previously persisted debug modes
- * @api private
- */
-
-function load() {
-  var r;
-  try {
-    r = exports.storage.debug;
-  } catch(e) {}
-
-  // If debug isn't set in LS, and we're in Electron, try to load $DEBUG
-  if (!r && typeof process !== 'undefined' && 'env' in process) {
-    r = process.env.DEBUG;
-  }
-
-  return r;
-}
-
-/**
- * Enable namespaces listed in `localStorage.debug` initially.
- */
-
-exports.enable(load());
-
-/**
- * Localstorage attempts to return the localstorage.
- *
- * This is necessary because safari throws
- * when a user disables cookies/localstorage
- * and you attempt to access it.
- *
- * @return {LocalStorage}
- * @api private
- */
-
-function localstorage() {
-  try {
-    return window.localStorage;
-  } catch (e) {}
+if (typeof window !== 'undefined') {
+  window.mongoose = module.exports;
+  window.Buffer = Buffer;
 }

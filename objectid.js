@@ -1,16 +1,30 @@
-
-/*!
- * [node-mongodb-native](https://github.com/mongodb/node-mongodb-native) ObjectId
- * @constructor NodeMongoDbObjectId
- * @see ObjectId
+/**
+ * ObjectId type constructor
+ *
+ * ####Example
+ *
+ *     const id = new mongoose.Types.ObjectId;
+ *
+ * @constructor ObjectId
  */
 
 'use strict';
 
-const ObjectId = require('mongodb').ObjectId;
+const ObjectId = require('../driver').get().ObjectId;
+const objectIdSymbol = require('../helpers/symbols').objectIdSymbol;
 
 /*!
- * ignore
+ * Getter for convenience with populate, see gh-6115
  */
 
-module.exports = exports = ObjectId;
+Object.defineProperty(ObjectId.prototype, '_id', {
+  enumerable: false,
+  configurable: true,
+  get: function() {
+    return this;
+  }
+});
+
+ObjectId.prototype[objectIdSymbol] = true;
+
+module.exports = ObjectId;

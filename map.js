@@ -1,128 +1,238 @@
 'use strict';
 
-// We have an ES6 Map available, return the native instance
-if (typeof global.Map !== 'undefined') {
-  module.exports = global.Map;
-  module.exports.Map = global.Map;
-} else {
-  // We will return a polyfill
-  var Map = function(array) {
-    this._keys = [];
-    this._values = {};
+const Mixed = require('../schema/mixed');
+const ObjectId = require('./objectid');
+const deepEqual = require('../utils').deepEqual;
+const get = require('../helpers/get');
+const handleSpreadDoc = require('../helpers/document/handleSpreadDoc');
+const util = require('util');
+const specialProperties = require('../helpers/specialProperties');
 
-    for (var i = 0; i < array.length; i++) {
-      if (array[i] == null) continue; // skip null and undefined
-      var entry = array[i];
-      var key = entry[0];
-      var value = entry[1];
-      // Add the key to the list of keys in order
-      this._keys.push(key);
-      // Add the key and value to the values dictionary with a point
-      // to the location in the ordered keys list
-      this._values[key] = { v: value, i: this._keys.length - 1 };
+const populateModelSymbol = require('../helpers/symbols').populateModelSymbol;
+
+/*!
+ * ignore
+ */
+
+class MongooseMap extends Map {
+  constructor(v, path, doc, schemaType) {
+    if (v != null && v.constructor.name === 'Object') {
+      v = Object.keys(v).reduce((arr, key) => arr.concat([[key, v[key]]]), []);
     }
-  };
+    super(v);
+    this.$__parent = doc != null && doc.$__ != null ? doc : null;
+    this.$__path = path;
+    this.$__schemaType = schemaType == null ? new Mixed(path) : schemaType;
 
-  Map.prototype.clear = function() {
-    this._keys = [];
-    this._values = {};
-  };
+    this.$__runDeferred();
+  }
 
-  Map.prototype.delete = function(key) {
-    var value = this._values[key];
-    if (value == null) return false;
-    // Delete entry
-    delete this._values[key];
-    // Remove the key from the ordered keys list
-    this._keys.splice(value.i, 1);
-    return true;
-  };
+  $init(key, value) {
+    checkValidKey(key);
 
-  Map.prototype.entries = function() {
-    var self = this;
-    var index = 0;
+    super.set(key, value);
 
-    return {
-      next: function() {
-        var key = self._keys[index++];
-        return {
-          value: key !== undefined ? [key, self._values[key].v] : undefined,
-          done: key !== undefined ? false : true
-        };
+    if (value != null && value.$isSingleNested) {
+      value.$basePath = this.$__path + '.' + key;
+    }
+  }
+
+  $__set(key, value) {
+    super.set(key, value);
+  }
+
+  get(key, options) {
+    if (key instanceof ObjectId) {
+      key = key.toString();
+    }
+
+    options = options || {};
+    if (options.getters === false) {
+      return super.get(key);
+    }
+    return this.$__schemaType.applyGetters(super.get(key), this.$__parent);
+  }
+
+  set(key, value) {
+    if (key instanceof ObjectId) {
+      key = key.toString();
+    }
+
+    checkValidKey(key);
+    value = handleSpreadDoc(value);
+
+    // Weird, but because you can't assign to `this` before calling `super()`
+    // you can't get access to `$__schemaType` to cast in the initial call to
+    // `set()` from the `super()` constructor.
+
+    if (this.$__schemaType == null) {
+      this.$__deferred = this.$__deferred || [];
+      this.$__deferred.push({ key: key, value: value });
+      return;
+    }
+
+    const fullPath = this.$__path + '.' + key;
+    const populated = this.$__parent != null && this.$__parent.$__ ?
+      this.$__parent.populated(fullPath) || this.$__parent.populated(this.$__path) :
+      null;
+    const priorVal = this.get(key);
+
+    if (populated != null) {
+      if (value.$__ == null) {
+        value = new populated.options[populateModelSymbol](value);
       }
-    };
-  };
-
-  Map.prototype.forEach = function(callback, self) {
-    self = self || this;
-
-    for (var i = 0; i < this._keys.length; i++) {
-      var key = this._keys[i];
-      // Call the forEach callback
-      callback.call(self, this._values[key].v, key, self);
-    }
-  };
-
-  Map.prototype.get = function(key) {
-    return this._values[key] ? this._values[key].v : undefined;
-  };
-
-  Map.prototype.has = function(key) {
-    return this._values[key] != null;
-  };
-
-  Map.prototype.keys = function() {
-    var self = this;
-    var index = 0;
-
-    return {
-      next: function() {
-        var key = self._keys[index++];
-        return {
-          value: key !== undefined ? key : undefined,
-          done: key !== undefined ? false : true
-        };
+      value.$__.wasPopulated = true;
+    } else {
+      try {
+        value = this.$__schemaType.
+          applySetters(value, this.$__parent, false, this.get(key), { path: fullPath });
+      } catch (error) {
+        if (this.$__parent != null && this.$__parent.$__ != null) {
+          this.$__parent.invalidate(fullPath, error);
+          return;
+        }
+        throw error;
       }
-    };
-  };
-
-  Map.prototype.set = function(key, value) {
-    if (this._values[key]) {
-      this._values[key].v = value;
-      return this;
     }
 
-    // Add the key to the list of keys in order
-    this._keys.push(key);
-    // Add the key and value to the values dictionary with a point
-    // to the location in the ordered keys list
-    this._values[key] = { v: value, i: this._keys.length - 1 };
-    return this;
-  };
+    super.set(key, value);
 
-  Map.prototype.values = function() {
-    var self = this;
-    var index = 0;
+    if (value != null && value.$isSingleNested) {
+      value.$basePath = this.$__path + '.' + key;
+    }
 
-    return {
-      next: function() {
-        var key = self._keys[index++];
-        return {
-          value: key !== undefined ? self._values[key].v : undefined,
-          done: key !== undefined ? false : true
-        };
+    const parent = this.$__parent;
+    if (parent != null && parent.$__ != null && !deepEqual(value, priorVal)) {
+      parent.markModified(this.$__path + '.' + key);
+    }
+  }
+
+  clear() {
+    super.clear();
+    const parent = this.$__parent;
+    if (parent != null) {
+      parent.markModified(this.$__path);
+    }
+  }
+
+  delete(key) {
+    if (key instanceof ObjectId) {
+      key = key.toString();
+    }
+
+    this.set(key, undefined);
+    super.delete(key);
+  }
+
+  toBSON() {
+    return new Map(this);
+  }
+
+  toObject(options) {
+    if (get(options, 'flattenMaps')) {
+      const ret = {};
+      const keys = this.keys();
+      for (const key of keys) {
+        ret[key] = this.get(key);
       }
-    };
-  };
-
-  // Last ismaster
-  Object.defineProperty(Map.prototype, 'size', {
-    enumerable: true,
-    get: function() {
-      return this._keys.length;
+      return ret;
     }
-  });
 
-  module.exports = Map;
-  module.exports.Map = Map;
+    return new Map(this);
+  }
+
+  toJSON() {
+    const ret = {};
+    const keys = this.keys();
+    for (const key of keys) {
+      ret[key] = this.get(key);
+    }
+    return ret;
+  }
+
+  inspect() {
+    return new Map(this);
+  }
+
+  $__runDeferred() {
+    if (!this.$__deferred) {
+      return;
+    }
+
+    for (const keyValueObject of this.$__deferred) {
+      this.set(keyValueObject.key, keyValueObject.value);
+    }
+
+    this.$__deferred = null;
+  }
 }
+
+if (util.inspect.custom) {
+  Object.defineProperty(MongooseMap.prototype, util.inspect.custom, {
+    enumerable: false,
+    writable: false,
+    configurable: false,
+    value: MongooseMap.prototype.inspect
+  });
+}
+
+Object.defineProperty(MongooseMap.prototype, '$__set', {
+  enumerable: false,
+  writable: true,
+  configurable: false
+});
+
+Object.defineProperty(MongooseMap.prototype, '$__parent', {
+  enumerable: false,
+  writable: true,
+  configurable: false
+});
+
+Object.defineProperty(MongooseMap.prototype, '$__path', {
+  enumerable: false,
+  writable: true,
+  configurable: false
+});
+
+Object.defineProperty(MongooseMap.prototype, '$__schemaType', {
+  enumerable: false,
+  writable: true,
+  configurable: false
+});
+
+Object.defineProperty(MongooseMap.prototype, '$isMongooseMap', {
+  enumerable: false,
+  writable: false,
+  configurable: false,
+  value: true
+});
+
+Object.defineProperty(MongooseMap.prototype, '$__deferredCalls', {
+  enumerable: false,
+  writable: false,
+  configurable: false,
+  value: true
+});
+
+/*!
+ * Since maps are stored as objects under the hood, keys must be strings
+ * and can't contain any invalid characters
+ */
+
+function checkValidKey(key) {
+  const keyType = typeof key;
+  if (keyType !== 'string') {
+    throw new TypeError(`Mongoose maps only support string keys, got ${keyType}`);
+  }
+  if (key.startsWith('$')) {
+    throw new Error(`Mongoose maps do not support keys that start with "$", got "${key}"`);
+  }
+  if (key.includes('.')) {
+    throw new Error(`Mongoose maps do not support keys that contain ".", got "${key}"`);
+  }
+  if (specialProperties.has(key)) {
+    throw new Error(`Mongoose maps do not support reserved key name "${key}"`);
+  }
+}
+
+module.exports = MongooseMap;
