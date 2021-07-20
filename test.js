@@ -1,68 +1,80 @@
-var assert = require('tap');
+var tape = require('tape')
+var pager = require('./')
 
-var t = require('./lib/util');
+tape('get page', function (t) {
+  var pages = pager(1024)
 
-assert.equal(t.isArray([]), true);
-assert.equal(t.isArray({}), false);
+  var page = pages.get(0)
 
-assert.equal(t.isBoolean(null), false);
-assert.equal(t.isBoolean(true), true);
-assert.equal(t.isBoolean(false), true);
+  t.same(page.offset, 0)
+  t.same(page.buffer, Buffer.alloc(1024))
+  t.end()
+})
 
-assert.equal(t.isNull(null), true);
-assert.equal(t.isNull(undefined), false);
-assert.equal(t.isNull(false), false);
-assert.equal(t.isNull(), false);
+tape('get page twice', function (t) {
+  var pages = pager(1024)
+  t.same(pages.length, 0)
 
-assert.equal(t.isNullOrUndefined(null), true);
-assert.equal(t.isNullOrUndefined(undefined), true);
-assert.equal(t.isNullOrUndefined(false), false);
-assert.equal(t.isNullOrUndefined(), true);
+  var page = pages.get(0)
 
-assert.equal(t.isNumber(null), false);
-assert.equal(t.isNumber('1'), false);
-assert.equal(t.isNumber(1), true);
+  t.same(page.offset, 0)
+  t.same(page.buffer, Buffer.alloc(1024))
+  t.same(pages.length, 1)
 
-assert.equal(t.isString(null), false);
-assert.equal(t.isString('1'), true);
-assert.equal(t.isString(1), false);
+  var other = pages.get(0)
 
-assert.equal(t.isSymbol(null), false);
-assert.equal(t.isSymbol('1'), false);
-assert.equal(t.isSymbol(1), false);
-assert.equal(t.isSymbol(Symbol()), true);
+  t.same(other, page)
+  t.end()
+})
 
-assert.equal(t.isUndefined(null), false);
-assert.equal(t.isUndefined(undefined), true);
-assert.equal(t.isUndefined(false), false);
-assert.equal(t.isUndefined(), true);
+tape('get no mutable page', function (t) {
+  var pages = pager(1024)
 
-assert.equal(t.isRegExp(null), false);
-assert.equal(t.isRegExp('1'), false);
-assert.equal(t.isRegExp(new RegExp()), true);
+  t.ok(!pages.get(141, true))
+  t.ok(pages.get(141))
+  t.ok(pages.get(141, true))
 
-assert.equal(t.isObject({}), true);
-assert.equal(t.isObject([]), true);
-assert.equal(t.isObject(new RegExp()), true);
-assert.equal(t.isObject(new Date()), true);
+  t.end()
+})
 
-assert.equal(t.isDate(null), false);
-assert.equal(t.isDate('1'), false);
-assert.equal(t.isDate(new Date()), true);
+tape('get far out page', function (t) {
+  var pages = pager(1024)
 
-assert.equal(t.isError(null), false);
-assert.equal(t.isError({ err: true }), false);
-assert.equal(t.isError(new Error()), true);
+  var page = pages.get(1000000)
 
-assert.equal(t.isFunction(null), false);
-assert.equal(t.isFunction({ }), false);
-assert.equal(t.isFunction(function() {}), true);
+  t.same(page.offset, 1000000 * 1024)
+  t.same(page.buffer, Buffer.alloc(1024))
+  t.same(pages.length, 1000000 + 1)
 
-assert.equal(t.isPrimitive(null), true);
-assert.equal(t.isPrimitive(''), true);
-assert.equal(t.isPrimitive(0), true);
-assert.equal(t.isPrimitive(new Date()), false);
+  var other = pages.get(1)
 
-assert.equal(t.isBuffer(null), false);
-assert.equal(t.isBuffer({}), false);
-assert.equal(t.isBuffer(new Buffer(0)), true);
+  t.same(other.offset, 1024)
+  t.same(other.buffer, Buffer.alloc(1024))
+  t.same(pages.length, 1000000 + 1)
+  t.ok(other !== page)
+
+  t.end()
+})
+
+tape('updates', function (t) {
+  var pages = pager(1024)
+
+  t.same(pages.lastUpdate(), null)
+
+  var page = pages.get(10)
+
+  page.buffer[42] = 1
+  pages.updated(page)
+
+  t.same(pages.lastUpdate(), page)
+  t.same(pages.lastUpdate(), null)
+
+  page.buffer[42] = 2
+  pages.updated(page)
+  pages.updated(page)
+
+  t.same(pages.lastUpdate(), page)
+  t.same(pages.lastUpdate(), null)
+
+  t.end()
+})

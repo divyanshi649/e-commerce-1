@@ -1,538 +1,160 @@
-/*!
- * depd
- * Copyright(c) 2014-2018 Douglas Christopher Wilson
- * MIT Licensed
- */
+module.exports = Pager
 
-/**
- * Module dependencies.
- */
+function Pager (pageSize, opts) {
+  if (!(this instanceof Pager)) return new Pager(pageSize, opts)
 
-var relative = require('path').relative
-
-/**
- * Module exports.
- */
-
-module.exports = depd
-
-/**
- * Get the path to base files on.
- */
-
-var basePath = process.cwd()
-
-/**
- * Determine if namespace is contained in the string.
- */
-
-function containsNamespace (str, namespace) {
-  var vals = str.split(/[ ,]+/)
-  var ns = String(namespace).toLowerCase()
-
-  for (var i = 0; i < vals.length; i++) {
-    var val = vals[i]
-
-    // namespace contained
-    if (val && (val === '*' || val.toLowerCase() === ns)) {
-      return true
-    }
-  }
-
-  return false
+  this.length = 0
+  this.updates = []
+  this.path = new Uint16Array(4)
+  this.pages = new Array(32768)
+  this.maxPages = this.pages.length
+  this.level = 0
+  this.pageSize = pageSize || 1024
+  this.deduplicate = opts ? opts.deduplicate : null
+  this.zeros = this.deduplicate ? alloc(this.deduplicate.length) : null
 }
 
-/**
- * Convert a data descriptor to accessor descriptor.
- */
-
-function convertDataDescriptorToAccessor (obj, prop, message) {
-  var descriptor = Object.getOwnPropertyDescriptor(obj, prop)
-  var value = descriptor.value
-
-  descriptor.get = function getter () { return value }
-
-  if (descriptor.writable) {
-    descriptor.set = function setter (val) { return (value = val) }
-  }
-
-  delete descriptor.value
-  delete descriptor.writable
-
-  Object.defineProperty(obj, prop, descriptor)
-
-  return descriptor
-}
-
-/**
- * Create arguments string to keep arity.
- */
-
-function createArgumentsString (arity) {
-  var str = ''
-
-  for (var i = 0; i < arity; i++) {
-    str += ', arg' + i
-  }
-
-  return str.substr(2)
-}
-
-/**
- * Create stack string from stack.
- */
-
-function createStackString (stack) {
-  var str = this.name + ': ' + this.namespace
-
-  if (this.message) {
-    str += ' deprecated ' + this.message
-  }
-
-  for (var i = 0; i < stack.length; i++) {
-    str += '\n    at ' + stack[i].toString()
-  }
-
-  return str
-}
-
-/**
- * Create deprecate for namespace in caller.
- */
-
-function depd (namespace) {
-  if (!namespace) {
-    throw new TypeError('argument namespace is required')
-  }
-
-  var stack = getStack()
-  var site = callSiteLocation(stack[1])
-  var file = site[0]
-
-  function deprecate (message) {
-    // call to self as log
-    log.call(deprecate, message)
-  }
-
-  deprecate._file = file
-  deprecate._ignored = isignored(namespace)
-  deprecate._namespace = namespace
-  deprecate._traced = istraced(namespace)
-  deprecate._warned = Object.create(null)
-
-  deprecate.function = wrapfunction
-  deprecate.property = wrapproperty
-
-  return deprecate
-}
-
-/**
- * Determine if event emitter has listeners of a given type.
- *
- * The way to do this check is done three different ways in Node.js >= 0.8
- * so this consolidates them into a minimal set using instance methods.
- *
- * @param {EventEmitter} emitter
- * @param {string} type
- * @returns {boolean}
- * @private
- */
-
-function eehaslisteners (emitter, type) {
-  var count = typeof emitter.listenerCount !== 'function'
-    ? emitter.listeners(type).length
-    : emitter.listenerCount(type)
-
-  return count > 0
-}
-
-/**
- * Determine if namespace is ignored.
- */
-
-function isignored (namespace) {
-  if (process.noDeprecation) {
-    // --no-deprecation support
-    return true
-  }
-
-  var str = process.env.NO_DEPRECATION || ''
-
-  // namespace ignored
-  return containsNamespace(str, namespace)
-}
-
-/**
- * Determine if namespace is traced.
- */
-
-function istraced (namespace) {
-  if (process.traceDeprecation) {
-    // --trace-deprecation support
-    return true
-  }
-
-  var str = process.env.TRACE_DEPRECATION || ''
-
-  // namespace traced
-  return containsNamespace(str, namespace)
-}
-
-/**
- * Display deprecation message.
- */
-
-function log (message, site) {
-  var haslisteners = eehaslisteners(process, 'deprecation')
-
-  // abort early if no destination
-  if (!haslisteners && this._ignored) {
-    return
-  }
-
-  var caller
-  var callFile
-  var callSite
-  var depSite
-  var i = 0
-  var seen = false
-  var stack = getStack()
-  var file = this._file
-
-  if (site) {
-    // provided site
-    depSite = site
-    callSite = callSiteLocation(stack[1])
-    callSite.name = depSite.name
-    file = callSite[0]
-  } else {
-    // get call site
-    i = 2
-    depSite = callSiteLocation(stack[i])
-    callSite = depSite
-  }
-
-  // get caller of deprecated thing in relation to file
-  for (; i < stack.length; i++) {
-    caller = callSiteLocation(stack[i])
-    callFile = caller[0]
-
-    if (callFile === file) {
-      seen = true
-    } else if (callFile === this._file) {
-      file = this._file
-    } else if (seen) {
+Pager.prototype.updated = function (page) {
+  while (this.deduplicate && page.buffer[page.deduplicate] === this.deduplicate[page.deduplicate]) {
+    page.deduplicate++
+    if (page.deduplicate === this.deduplicate.length) {
+      page.deduplicate = 0
+      if (page.buffer.equals && page.buffer.equals(this.deduplicate)) page.buffer = this.deduplicate
       break
     }
   }
+  if (page.updated || !this.updates) return
+  page.updated = true
+  this.updates.push(page)
+}
 
-  var key = caller
-    ? depSite.join(':') + '__' + caller.join(':')
-    : undefined
+Pager.prototype.lastUpdate = function () {
+  if (!this.updates || !this.updates.length) return null
+  var page = this.updates.pop()
+  page.updated = false
+  return page
+}
 
-  if (key !== undefined && key in this._warned) {
-    // already warned
+Pager.prototype._array = function (i, noAllocate) {
+  if (i >= this.maxPages) {
+    if (noAllocate) return
+    grow(this, i)
+  }
+
+  factor(i, this.path)
+
+  var arr = this.pages
+
+  for (var j = this.level; j > 0; j--) {
+    var p = this.path[j]
+    var next = arr[p]
+
+    if (!next) {
+      if (noAllocate) return
+      next = arr[p] = new Array(32768)
+    }
+
+    arr = next
+  }
+
+  return arr
+}
+
+Pager.prototype.get = function (i, noAllocate) {
+  var arr = this._array(i, noAllocate)
+  var first = this.path[0]
+  var page = arr && arr[first]
+
+  if (!page && !noAllocate) {
+    page = arr[first] = new Page(i, alloc(this.pageSize))
+    if (i >= this.length) this.length = i + 1
+  }
+
+  if (page && page.buffer === this.deduplicate && this.deduplicate && !noAllocate) {
+    page.buffer = copy(page.buffer)
+    page.deduplicate = 0
+  }
+
+  return page
+}
+
+Pager.prototype.set = function (i, buf) {
+  var arr = this._array(i, false)
+  var first = this.path[0]
+
+  if (i >= this.length) this.length = i + 1
+
+  if (!buf || (this.zeros && buf.equals && buf.equals(this.zeros))) {
+    arr[first] = undefined
     return
   }
 
-  this._warned[key] = true
-
-  // generate automatic message from call site
-  var msg = message
-  if (!msg) {
-    msg = callSite === depSite || !callSite.name
-      ? defaultMessage(depSite)
-      : defaultMessage(callSite)
+  if (this.deduplicate && buf.equals && buf.equals(this.deduplicate)) {
+    buf = this.deduplicate
   }
 
-  // emit deprecation if listeners exist
-  if (haslisteners) {
-    var err = DeprecationError(this._namespace, msg, stack.slice(i))
-    process.emit('deprecation', err)
-    return
-  }
+  var page = arr[first]
+  var b = truncate(buf, this.pageSize)
 
-  // format and write message
-  var format = process.stderr.isTTY
-    ? formatColor
-    : formatPlain
-  var output = format.call(this, msg, caller, stack.slice(i))
-  process.stderr.write(output + '\n', 'utf8')
+  if (page) page.buffer = b
+  else arr[first] = new Page(i, b)
 }
 
-/**
- * Get call site location as array.
- */
+Pager.prototype.toBuffer = function () {
+  var list = new Array(this.length)
+  var empty = alloc(this.pageSize)
+  var ptr = 0
 
-function callSiteLocation (callSite) {
-  var file = callSite.getFileName() || '<anonymous>'
-  var line = callSite.getLineNumber()
-  var colm = callSite.getColumnNumber()
-
-  if (callSite.isEval()) {
-    file = callSite.getEvalOrigin() + ', ' + file
-  }
-
-  var site = [file, line, colm]
-
-  site.callSite = callSite
-  site.name = callSite.getFunctionName()
-
-  return site
-}
-
-/**
- * Generate a default message from the site.
- */
-
-function defaultMessage (site) {
-  var callSite = site.callSite
-  var funcName = site.name
-
-  // make useful anonymous name
-  if (!funcName) {
-    funcName = '<anonymous@' + formatLocation(site) + '>'
-  }
-
-  var context = callSite.getThis()
-  var typeName = context && callSite.getTypeName()
-
-  // ignore useless type name
-  if (typeName === 'Object') {
-    typeName = undefined
-  }
-
-  // make useful type name
-  if (typeName === 'Function') {
-    typeName = context.name || typeName
-  }
-
-  return typeName && callSite.getMethodName()
-    ? typeName + '.' + funcName
-    : funcName
-}
-
-/**
- * Format deprecation message without color.
- */
-
-function formatPlain (msg, caller, stack) {
-  var timestamp = new Date().toUTCString()
-
-  var formatted = timestamp +
-    ' ' + this._namespace +
-    ' deprecated ' + msg
-
-  // add stack trace
-  if (this._traced) {
-    for (var i = 0; i < stack.length; i++) {
-      formatted += '\n    at ' + stack[i].toString()
-    }
-
-    return formatted
-  }
-
-  if (caller) {
-    formatted += ' at ' + formatLocation(caller)
-  }
-
-  return formatted
-}
-
-/**
- * Format deprecation message with color.
- */
-
-function formatColor (msg, caller, stack) {
-  var formatted = '\x1b[36;1m' + this._namespace + '\x1b[22;39m' + // bold cyan
-    ' \x1b[33;1mdeprecated\x1b[22;39m' + // bold yellow
-    ' \x1b[0m' + msg + '\x1b[39m' // reset
-
-  // add stack trace
-  if (this._traced) {
-    for (var i = 0; i < stack.length; i++) {
-      formatted += '\n    \x1b[36mat ' + stack[i].toString() + '\x1b[39m' // cyan
-    }
-
-    return formatted
-  }
-
-  if (caller) {
-    formatted += ' \x1b[36m' + formatLocation(caller) + '\x1b[39m' // cyan
-  }
-
-  return formatted
-}
-
-/**
- * Format call site location.
- */
-
-function formatLocation (callSite) {
-  return relative(basePath, callSite[0]) +
-    ':' + callSite[1] +
-    ':' + callSite[2]
-}
-
-/**
- * Get the stack as array of call sites.
- */
-
-function getStack () {
-  var limit = Error.stackTraceLimit
-  var obj = {}
-  var prep = Error.prepareStackTrace
-
-  Error.prepareStackTrace = prepareObjectStackTrace
-  Error.stackTraceLimit = Math.max(10, limit)
-
-  // capture the stack
-  Error.captureStackTrace(obj)
-
-  // slice this function off the top
-  var stack = obj.stack.slice(1)
-
-  Error.prepareStackTrace = prep
-  Error.stackTraceLimit = limit
-
-  return stack
-}
-
-/**
- * Capture call site stack from v8.
- */
-
-function prepareObjectStackTrace (obj, stack) {
-  return stack
-}
-
-/**
- * Return a wrapped function in a deprecation message.
- */
-
-function wrapfunction (fn, message) {
-  if (typeof fn !== 'function') {
-    throw new TypeError('argument fn must be a function')
-  }
-
-  var args = createArgumentsString(fn.length)
-  var stack = getStack()
-  var site = callSiteLocation(stack[1])
-
-  site.name = fn.name
-
-  // eslint-disable-next-line no-new-func
-  var deprecatedfn = new Function('fn', 'log', 'deprecate', 'message', 'site',
-    '"use strict"\n' +
-    'return function (' + args + ') {' +
-    'log.call(deprecate, message, site)\n' +
-    'return fn.apply(this, arguments)\n' +
-    '}')(fn, log, this, message, site)
-
-  return deprecatedfn
-}
-
-/**
- * Wrap property in a deprecation message.
- */
-
-function wrapproperty (obj, prop, message) {
-  if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) {
-    throw new TypeError('argument obj must be object')
-  }
-
-  var descriptor = Object.getOwnPropertyDescriptor(obj, prop)
-
-  if (!descriptor) {
-    throw new TypeError('must call property on owner object')
-  }
-
-  if (!descriptor.configurable) {
-    throw new TypeError('property must be configurable')
-  }
-
-  var deprecate = this
-  var stack = getStack()
-  var site = callSiteLocation(stack[1])
-
-  // set site name
-  site.name = prop
-
-  // convert data descriptor
-  if ('value' in descriptor) {
-    descriptor = convertDataDescriptorToAccessor(obj, prop, message)
-  }
-
-  var get = descriptor.get
-  var set = descriptor.set
-
-  // wrap getter
-  if (typeof get === 'function') {
-    descriptor.get = function getter () {
-      log.call(deprecate, message, site)
-      return get.apply(this, arguments)
+  while (ptr < list.length) {
+    var arr = this._array(ptr, true)
+    for (var i = 0; i < 32768 && ptr < list.length; i++) {
+      list[ptr++] = (arr && arr[i]) ? arr[i].buffer : empty
     }
   }
 
-  // wrap setter
-  if (typeof set === 'function') {
-    descriptor.set = function setter () {
-      log.call(deprecate, message, site)
-      return set.apply(this, arguments)
-    }
-  }
-
-  Object.defineProperty(obj, prop, descriptor)
+  return Buffer.concat(list)
 }
 
-/**
- * Create DeprecationError for deprecation
- */
+function grow (pager, index) {
+  while (pager.maxPages < index) {
+    var old = pager.pages
+    pager.pages = new Array(32768)
+    pager.pages[0] = old
+    pager.level++
+    pager.maxPages *= 32768
+  }
+}
 
-function DeprecationError (namespace, message, stack) {
-  var error = new Error()
-  var stackString
+function truncate (buf, len) {
+  if (buf.length === len) return buf
+  if (buf.length > len) return buf.slice(0, len)
+  var cpy = alloc(len)
+  buf.copy(cpy)
+  return cpy
+}
 
-  Object.defineProperty(error, 'constructor', {
-    value: DeprecationError
-  })
+function alloc (size) {
+  if (Buffer.alloc) return Buffer.alloc(size)
+  var buf = new Buffer(size)
+  buf.fill(0)
+  return buf
+}
 
-  Object.defineProperty(error, 'message', {
-    configurable: true,
-    enumerable: false,
-    value: message,
-    writable: true
-  })
+function copy (buf) {
+  var cpy = Buffer.allocUnsafe ? Buffer.allocUnsafe(buf.length) : new Buffer(buf.length)
+  buf.copy(cpy)
+  return cpy
+}
 
-  Object.defineProperty(error, 'name', {
-    enumerable: false,
-    configurable: true,
-    value: 'DeprecationError',
-    writable: true
-  })
+function Page (i, buf) {
+  this.offset = i * buf.length
+  this.buffer = buf
+  this.updated = false
+  this.deduplicate = 0
+}
 
-  Object.defineProperty(error, 'namespace', {
-    configurable: true,
-    enumerable: false,
-    value: namespace,
-    writable: true
-  })
-
-  Object.defineProperty(error, 'stack', {
-    configurable: true,
-    enumerable: false,
-    get: function () {
-      if (stackString !== undefined) {
-        return stackString
-      }
-
-      // prepare stack trace
-      return (stackString = createStackString.call(this, stack))
-    },
-    set: function setter (val) {
-      stackString = val
-    }
-  })
-
-  return error
+function factor (n, out) {
+  n = (n - (out[0] = (n & 32767))) / 32768
+  n = (n - (out[1] = (n & 32767))) / 32768
+  out[3] = ((n - (out[2] = (n & 32767))) / 32768) & 32767
 }
