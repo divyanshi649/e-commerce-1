@@ -1,65 +1,113 @@
-# memory-pager
+# mime-types
 
-Access memory using small fixed sized buffers instead of allocating a huge buffer.
-Useful if you are implementing sparse data structures (such as large bitfield).
+[![NPM Version][npm-version-image]][npm-url]
+[![NPM Downloads][npm-downloads-image]][npm-url]
+[![Node.js Version][node-version-image]][node-version-url]
+[![Build Status][ci-image]][ci-url]
+[![Test Coverage][coveralls-image]][coveralls-url]
 
-![travis](https://travis-ci.org/mafintosh/memory-pager.svg?branch=master)
+The ultimate javascript content-type utility.
 
+Similar to [the `mime@1.x` module](https://www.npmjs.com/package/mime), except:
+
+- __No fallbacks.__ Instead of naively returning the first available type,
+  `mime-types` simply returns `false`, so do
+  `var type = mime.lookup('unrecognized') || 'application/octet-stream'`.
+- No `new Mime()` business, so you could do `var lookup = require('mime-types').lookup`.
+- No `.define()` functionality
+- Bug fixes for `.lookup(path)`
+
+Otherwise, the API is compatible with `mime` 1.x.
+
+## Install
+
+This is a [Node.js](https://nodejs.org/en/) module available through the
+[npm registry](https://www.npmjs.com/). Installation is done using the
+[`npm install` command](https://docs.npmjs.com/getting-started/installing-npm-packages-locally):
+
+```sh
+$ npm install mime-types
 ```
-npm install memory-pager
-```
 
-## Usage
+## Adding Types
 
-``` js
-var pager = require('paged-memory')
-
-var pages = pager(1024) // use 1kb per page
-
-var page = pages.get(10) // get page #10
-
-console.log(page.offset) // 10240
-console.log(page.buffer) // a blank 1kb buffer
-```
+All mime types are based on [mime-db](https://www.npmjs.com/package/mime-db),
+so open a PR there if you'd like to add mime types.
 
 ## API
 
-#### `var pages = pager(pageSize)`
-
-Create a new pager. `pageSize` defaults to `1024`.
-
-#### `var page = pages.get(pageNumber, [noAllocate])`
-
-Get a page. The page will be allocated at first access.
-
-Optionally you can set the `noAllocate` flag which will make the
-method return undefined if no page has been allocated already
-
-A page looks like this
-
-``` js
-{
-  offset: byteOffset,
-  buffer: bufferWithPageSize
-}
+```js
+var mime = require('mime-types')
 ```
 
-#### `pages.set(pageNumber, buffer)`
+All functions return `false` if input is invalid or not found.
 
-Explicitly set the buffer for a page.
+### mime.lookup(path)
 
-#### `pages.updated(page)`
+Lookup the content-type associated with a file.
 
-Mark a page as updated.
+```js
+mime.lookup('json') // 'application/json'
+mime.lookup('.md') // 'text/markdown'
+mime.lookup('file.html') // 'text/html'
+mime.lookup('folder/file.js') // 'application/javascript'
+mime.lookup('folder/.htaccess') // false
 
-#### `pages.lastUpdate()`
+mime.lookup('cats') // false
+```
 
-Get the last page that was updated.
+### mime.contentType(type)
 
-#### `var buf = pages.toBuffer()`
+Create a full content-type header given a content-type or extension.
+When given an extension, `mime.lookup` is used to get the matching
+content-type, otherwise the given content-type is used. Then if the
+content-type does not already have a `charset` parameter, `mime.charset`
+is used to get the default charset and add to the returned content-type.
 
-Concat all pages allocated pages into a single buffer
+```js
+mime.contentType('markdown') // 'text/x-markdown; charset=utf-8'
+mime.contentType('file.json') // 'application/json; charset=utf-8'
+mime.contentType('text/html') // 'text/html; charset=utf-8'
+mime.contentType('text/html; charset=iso-8859-1') // 'text/html; charset=iso-8859-1'
+
+// from a full path
+mime.contentType(path.extname('/path/to/file.json')) // 'application/json; charset=utf-8'
+```
+
+### mime.extension(type)
+
+Get the default extension for a content-type.
+
+```js
+mime.extension('application/octet-stream') // 'bin'
+```
+
+### mime.charset(type)
+
+Lookup the implied default charset of a content-type.
+
+```js
+mime.charset('text/markdown') // 'UTF-8'
+```
+
+### var type = mime.types[extension]
+
+A map of content-types by extension.
+
+### [extensions...] = mime.extensions[type]
+
+A map of extensions by content-type.
 
 ## License
 
-MIT
+[MIT](LICENSE)
+
+[ci-image]: https://badgen.net/github/checks/jshttp/mime-types/master?label=ci
+[ci-url]: https://github.com/jshttp/mime-types/actions?query=workflow%3Aci
+[coveralls-image]: https://badgen.net/coveralls/c/github/jshttp/mime-types/master
+[coveralls-url]: https://coveralls.io/r/jshttp/mime-types?branch=master
+[node-version-image]: https://badgen.net/npm/node/mime-types
+[node-version-url]: https://nodejs.org/en/download
+[npm-downloads-image]: https://badgen.net/npm/dm/mime-types
+[npm-url]: https://npmjs.org/package/mime-types
+[npm-version-image]: https://badgen.net/npm/v/mime-types

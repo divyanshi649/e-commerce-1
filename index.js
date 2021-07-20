@@ -1,160 +1,359 @@
-module.exports = Pager
+'use strict';
 
-function Pager (pageSize, opts) {
-  if (!(this instanceof Pager)) return new Pager(pageSize, opts)
+var Emitter = require('events').EventEmitter;
+var GridFSBucketReadStream = require('./download');
+var GridFSBucketWriteStream = require('./upload');
+var shallowClone = require('../utils').shallowClone;
+var toError = require('../utils').toError;
+var util = require('util');
+var executeLegacyOperation = require('../utils').executeLegacyOperation;
 
-  this.length = 0
-  this.updates = []
-  this.path = new Uint16Array(4)
-  this.pages = new Array(32768)
-  this.maxPages = this.pages.length
-  this.level = 0
-  this.pageSize = pageSize || 1024
-  this.deduplicate = opts ? opts.deduplicate : null
-  this.zeros = this.deduplicate ? alloc(this.deduplicate.length) : null
+var DEFAULT_GRIDFS_BUCKET_OPTIONS = {
+  bucketName: 'fs',
+  chunkSizeBytes: 255 * 1024
+};
+
+module.exports = GridFSBucket;
+
+/**
+ * Constructor for a streaming GridFS interface
+ * @class
+ * @extends external:EventEmitter
+ * @param {Db} db A db handle
+ * @param {object} [options] Optional settings.
+ * @param {string} [options.bucketName="fs"] The 'files' and 'chunks' collections will be prefixed with the bucket name followed by a dot.
+ * @param {number} [options.chunkSizeBytes=255 * 1024] Number of bytes stored in each chunk. Defaults to 255KB
+ * @param {object} [options.writeConcern] Optional write concern to be passed to write operations, for instance `{ w: 1 }`
+ * @param {object} [options.readPreference] Optional read preference to be passed to read operations
+ * @fires GridFSBucketWriteStream#index
+ */
+
+function GridFSBucket(db, options) {
+  Emitter.apply(this);
+  this.setMaxListeners(0);
+
+  if (options && typeof options === 'object') {
+    options = shallowClone(options);
+    var keys = Object.keys(DEFAULT_GRIDFS_BUCKET_OPTIONS);
+    for (var i = 0; i < keys.length; ++i) {
+      if (!options[keys[i]]) {
+        options[keys[i]] = DEFAULT_GRIDFS_BUCKET_OPTIONS[keys[i]];
+      }
+    }
+  } else {
+    options = DEFAULT_GRIDFS_BUCKET_OPTIONS;
+  }
+
+  this.s = {
+    db: db,
+    options: options,
+    _chunksCollection: db.collection(options.bucketName + '.chunks'),
+    _filesCollection: db.collection(options.bucketName + '.files'),
+    checkedIndexes: false,
+    calledOpenUploadStream: false,
+    promiseLibrary: db.s.promiseLibrary || Promise
+  };
 }
 
-Pager.prototype.updated = function (page) {
-  while (this.deduplicate && page.buffer[page.deduplicate] === this.deduplicate[page.deduplicate]) {
-    page.deduplicate++
-    if (page.deduplicate === this.deduplicate.length) {
-      page.deduplicate = 0
-      if (page.buffer.equals && page.buffer.equals(this.deduplicate)) page.buffer = this.deduplicate
-      break
+util.inherits(GridFSBucket, Emitter);
+
+/**
+ * When the first call to openUploadStream is made, the upload stream will
+ * check to see if it needs to create the proper indexes on the chunks and
+ * files collections. This event is fired either when 1) it determines that
+ * no index creation is necessary, 2) when it successfully creates the
+ * necessary indexes.
+ *
+ * @event GridFSBucket#index
+ * @type {Error}
+ */
+
+/**
+ * Returns a writable stream (GridFSBucketWriteStream) for writing
+ * buffers to GridFS. The stream's 'id' property contains the resulting
+ * file's id.
+ * @method
+ * @param {string} filename The value of the 'filename' key in the files doc
+ * @param {object} [options] Optional settings.
+ * @param {number} [options.chunkSizeBytes] Optional overwrite this bucket's chunkSizeBytes for this file
+ * @param {object} [options.metadata] Optional object to store in the file document's `metadata` field
+ * @param {string} [options.contentType] Optional string to store in the file document's `contentType` field
+ * @param {array} [options.aliases] Optional array of strings to store in the file document's `aliases` field
+ * @param {boolean} [options.disableMD5=false] If true, disables adding an md5 field to file data
+ * @return {GridFSBucketWriteStream}
+ */
+
+GridFSBucket.prototype.openUploadStream = function(filename, options) {
+  if (options) {
+    options = shallowClone(options);
+  } else {
+    options = {};
+  }
+  if (!options.chunkSizeBytes) {
+    options.chunkSizeBytes = this.s.options.chunkSizeBytes;
+  }
+  return new GridFSBucketWriteStream(this, filename, options);
+};
+
+/**
+ * Returns a writable stream (GridFSBucketWriteStream) for writing
+ * buffers to GridFS for a custom file id. The stream's 'id' property contains the resulting
+ * file's id.
+ * @method
+ * @param {string|number|object} id A custom id used to identify the file
+ * @param {string} filename The value of the 'filename' key in the files doc
+ * @param {object} [options] Optional settings.
+ * @param {number} [options.chunkSizeBytes] Optional overwrite this bucket's chunkSizeBytes for this file
+ * @param {object} [options.metadata] Optional object to store in the file document's `metadata` field
+ * @param {string} [options.contentType] Optional string to store in the file document's `contentType` field
+ * @param {array} [options.aliases] Optional array of strings to store in the file document's `aliases` field
+ * @param {boolean} [options.disableMD5=false] If true, disables adding an md5 field to file data
+ * @return {GridFSBucketWriteStream}
+ */
+
+GridFSBucket.prototype.openUploadStreamWithId = function(id, filename, options) {
+  if (options) {
+    options = shallowClone(options);
+  } else {
+    options = {};
+  }
+
+  if (!options.chunkSizeBytes) {
+    options.chunkSizeBytes = this.s.options.chunkSizeBytes;
+  }
+
+  options.id = id;
+
+  return new GridFSBucketWriteStream(this, filename, options);
+};
+
+/**
+ * Returns a readable stream (GridFSBucketReadStream) for streaming file
+ * data from GridFS.
+ * @method
+ * @param {ObjectId} id The id of the file doc
+ * @param {Object} [options] Optional settings.
+ * @param {Number} [options.start] Optional 0-based offset in bytes to start streaming from
+ * @param {Number} [options.end] Optional 0-based offset in bytes to stop streaming before
+ * @return {GridFSBucketReadStream}
+ */
+
+GridFSBucket.prototype.openDownloadStream = function(id, options) {
+  var filter = { _id: id };
+  options = {
+    start: options && options.start,
+    end: options && options.end
+  };
+
+  return new GridFSBucketReadStream(
+    this.s._chunksCollection,
+    this.s._filesCollection,
+    this.s.options.readPreference,
+    filter,
+    options
+  );
+};
+
+/**
+ * Deletes a file with the given id
+ * @method
+ * @param {ObjectId} id The id of the file doc
+ * @param {GridFSBucket~errorCallback} [callback]
+ */
+
+GridFSBucket.prototype.delete = function(id, callback) {
+  return executeLegacyOperation(this.s.db.s.topology, _delete, [this, id, callback], {
+    skipSessions: true
+  });
+};
+
+/**
+ * @ignore
+ */
+
+function _delete(_this, id, callback) {
+  _this.s._filesCollection.deleteOne({ _id: id }, function(error, res) {
+    if (error) {
+      return callback(error);
+    }
+
+    _this.s._chunksCollection.deleteMany({ files_id: id }, function(error) {
+      if (error) {
+        return callback(error);
+      }
+
+      // Delete orphaned chunks before returning FileNotFound
+      if (!res.result.n) {
+        var errmsg = 'FileNotFound: no file with id ' + id + ' found';
+        return callback(new Error(errmsg));
+      }
+
+      callback();
+    });
+  });
+}
+
+/**
+ * Convenience wrapper around find on the files collection
+ * @method
+ * @param {Object} filter
+ * @param {Object} [options] Optional settings for cursor
+ * @param {number} [options.batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/find|find command documentation}.
+ * @param {number} [options.limit] Optional limit for cursor
+ * @param {number} [options.maxTimeMS] Optional maxTimeMS for cursor
+ * @param {boolean} [options.noCursorTimeout] Optionally set cursor's `noCursorTimeout` flag
+ * @param {number} [options.skip] Optional skip for cursor
+ * @param {object} [options.sort] Optional sort for cursor
+ * @return {Cursor}
+ */
+
+GridFSBucket.prototype.find = function(filter, options) {
+  filter = filter || {};
+  options = options || {};
+
+  var cursor = this.s._filesCollection.find(filter);
+
+  if (options.batchSize != null) {
+    cursor.batchSize(options.batchSize);
+  }
+  if (options.limit != null) {
+    cursor.limit(options.limit);
+  }
+  if (options.maxTimeMS != null) {
+    cursor.maxTimeMS(options.maxTimeMS);
+  }
+  if (options.noCursorTimeout != null) {
+    cursor.addCursorFlag('noCursorTimeout', options.noCursorTimeout);
+  }
+  if (options.skip != null) {
+    cursor.skip(options.skip);
+  }
+  if (options.sort != null) {
+    cursor.sort(options.sort);
+  }
+
+  return cursor;
+};
+
+/**
+ * Returns a readable stream (GridFSBucketReadStream) for streaming the
+ * file with the given name from GridFS. If there are multiple files with
+ * the same name, this will stream the most recent file with the given name
+ * (as determined by the `uploadDate` field). You can set the `revision`
+ * option to change this behavior.
+ * @method
+ * @param {String} filename The name of the file to stream
+ * @param {Object} [options] Optional settings
+ * @param {number} [options.revision=-1] The revision number relative to the oldest file with the given filename. 0 gets you the oldest file, 1 gets you the 2nd oldest, -1 gets you the newest.
+ * @param {Number} [options.start] Optional 0-based offset in bytes to start streaming from
+ * @param {Number} [options.end] Optional 0-based offset in bytes to stop streaming before
+ * @return {GridFSBucketReadStream}
+ */
+
+GridFSBucket.prototype.openDownloadStreamByName = function(filename, options) {
+  var sort = { uploadDate: -1 };
+  var skip = null;
+  if (options && options.revision != null) {
+    if (options.revision >= 0) {
+      sort = { uploadDate: 1 };
+      skip = options.revision;
+    } else {
+      skip = -options.revision - 1;
     }
   }
-  if (page.updated || !this.updates) return
-  page.updated = true
-  this.updates.push(page)
-}
 
-Pager.prototype.lastUpdate = function () {
-  if (!this.updates || !this.updates.length) return null
-  var page = this.updates.pop()
-  page.updated = false
-  return page
-}
+  var filter = { filename: filename };
+  options = {
+    sort: sort,
+    skip: skip,
+    start: options && options.start,
+    end: options && options.end
+  };
+  return new GridFSBucketReadStream(
+    this.s._chunksCollection,
+    this.s._filesCollection,
+    this.s.options.readPreference,
+    filter,
+    options
+  );
+};
 
-Pager.prototype._array = function (i, noAllocate) {
-  if (i >= this.maxPages) {
-    if (noAllocate) return
-    grow(this, i)
-  }
+/**
+ * Renames the file with the given _id to the given string
+ * @method
+ * @param {ObjectId} id the id of the file to rename
+ * @param {String} filename new name for the file
+ * @param {GridFSBucket~errorCallback} [callback]
+ */
 
-  factor(i, this.path)
+GridFSBucket.prototype.rename = function(id, filename, callback) {
+  return executeLegacyOperation(this.s.db.s.topology, _rename, [this, id, filename, callback], {
+    skipSessions: true
+  });
+};
 
-  var arr = this.pages
+/**
+ * @ignore
+ */
 
-  for (var j = this.level; j > 0; j--) {
-    var p = this.path[j]
-    var next = arr[p]
-
-    if (!next) {
-      if (noAllocate) return
-      next = arr[p] = new Array(32768)
+function _rename(_this, id, filename, callback) {
+  var filter = { _id: id };
+  var update = { $set: { filename: filename } };
+  _this.s._filesCollection.updateOne(filter, update, function(error, res) {
+    if (error) {
+      return callback(error);
     }
-
-    arr = next
-  }
-
-  return arr
-}
-
-Pager.prototype.get = function (i, noAllocate) {
-  var arr = this._array(i, noAllocate)
-  var first = this.path[0]
-  var page = arr && arr[first]
-
-  if (!page && !noAllocate) {
-    page = arr[first] = new Page(i, alloc(this.pageSize))
-    if (i >= this.length) this.length = i + 1
-  }
-
-  if (page && page.buffer === this.deduplicate && this.deduplicate && !noAllocate) {
-    page.buffer = copy(page.buffer)
-    page.deduplicate = 0
-  }
-
-  return page
-}
-
-Pager.prototype.set = function (i, buf) {
-  var arr = this._array(i, false)
-  var first = this.path[0]
-
-  if (i >= this.length) this.length = i + 1
-
-  if (!buf || (this.zeros && buf.equals && buf.equals(this.zeros))) {
-    arr[first] = undefined
-    return
-  }
-
-  if (this.deduplicate && buf.equals && buf.equals(this.deduplicate)) {
-    buf = this.deduplicate
-  }
-
-  var page = arr[first]
-  var b = truncate(buf, this.pageSize)
-
-  if (page) page.buffer = b
-  else arr[first] = new Page(i, b)
-}
-
-Pager.prototype.toBuffer = function () {
-  var list = new Array(this.length)
-  var empty = alloc(this.pageSize)
-  var ptr = 0
-
-  while (ptr < list.length) {
-    var arr = this._array(ptr, true)
-    for (var i = 0; i < 32768 && ptr < list.length; i++) {
-      list[ptr++] = (arr && arr[i]) ? arr[i].buffer : empty
+    if (!res.result.n) {
+      return callback(toError('File with id ' + id + ' not found'));
     }
-  }
-
-  return Buffer.concat(list)
+    callback();
+  });
 }
 
-function grow (pager, index) {
-  while (pager.maxPages < index) {
-    var old = pager.pages
-    pager.pages = new Array(32768)
-    pager.pages[0] = old
-    pager.level++
-    pager.maxPages *= 32768
-  }
+/**
+ * Removes this bucket's files collection, followed by its chunks collection.
+ * @method
+ * @param {GridFSBucket~errorCallback} [callback]
+ */
+
+GridFSBucket.prototype.drop = function(callback) {
+  return executeLegacyOperation(this.s.db.s.topology, _drop, [this, callback], {
+    skipSessions: true
+  });
+};
+
+/**
+ * Return the db logger
+ * @method
+ * @return {Logger} return the db logger
+ * @ignore
+ */
+GridFSBucket.prototype.getLogger = function() {
+  return this.s.db.s.logger;
+};
+
+/**
+ * @ignore
+ */
+
+function _drop(_this, callback) {
+  _this.s._filesCollection.drop(function(error) {
+    if (error) {
+      return callback(error);
+    }
+    _this.s._chunksCollection.drop(function(error) {
+      if (error) {
+        return callback(error);
+      }
+
+      return callback();
+    });
+  });
 }
 
-function truncate (buf, len) {
-  if (buf.length === len) return buf
-  if (buf.length > len) return buf.slice(0, len)
-  var cpy = alloc(len)
-  buf.copy(cpy)
-  return cpy
-}
-
-function alloc (size) {
-  if (Buffer.alloc) return Buffer.alloc(size)
-  var buf = new Buffer(size)
-  buf.fill(0)
-  return buf
-}
-
-function copy (buf) {
-  var cpy = Buffer.allocUnsafe ? Buffer.allocUnsafe(buf.length) : new Buffer(buf.length)
-  buf.copy(cpy)
-  return cpy
-}
-
-function Page (i, buf) {
-  this.offset = i * buf.length
-  this.buffer = buf
-  this.updated = false
-  this.deduplicate = 0
-}
-
-function factor (n, out) {
-  n = (n - (out[0] = (n & 32767))) / 32768
-  n = (n - (out[1] = (n & 32767))) / 32768
-  out[3] = ((n - (out[2] = (n & 32767))) / 32768) & 32767
-}
+/**
+ * Callback format for all GridFSBucket methods that can accept a callback.
+ * @callback GridFSBucket~errorCallback
+ * @param {MongoError|undefined} error If present, an error instance representing any errors that occurred
+ * @param {*} result If present, a returned result for the method
+ */

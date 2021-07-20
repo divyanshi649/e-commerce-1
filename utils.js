@@ -1,306 +1,294 @@
-/*!
- * express
- * Copyright(c) 2009-2013 TJ Holowaychuk
- * Copyright(c) 2014-2015 Douglas Christopher Wilson
- * MIT Licensed
- */
-
 'use strict';
+const os = require('os');
+const crypto = require('crypto');
+const requireOptional = require('optional-require')(require);
 
 /**
- * Module dependencies.
- * @api private
+ * Generate a UUIDv4
  */
-
-var Buffer = require('safe-buffer').Buffer
-var contentDisposition = require('content-disposition');
-var contentType = require('content-type');
-var deprecate = require('depd')('express');
-var flatten = require('array-flatten');
-var mime = require('send').mime;
-var etag = require('etag');
-var proxyaddr = require('proxy-addr');
-var qs = require('qs');
-var querystring = require('querystring');
-
-/**
- * Return strong ETag for `body`.
- *
- * @param {String|Buffer} body
- * @param {String} [encoding]
- * @return {String}
- * @api private
- */
-
-exports.etag = createETagGenerator({ weak: false })
-
-/**
- * Return weak ETag for `body`.
- *
- * @param {String|Buffer} body
- * @param {String} [encoding]
- * @return {String}
- * @api private
- */
-
-exports.wetag = createETagGenerator({ weak: true })
-
-/**
- * Check if `path` looks absolute.
- *
- * @param {String} path
- * @return {Boolean}
- * @api private
- */
-
-exports.isAbsolute = function(path){
-  if ('/' === path[0]) return true;
-  if (':' === path[1] && ('\\' === path[2] || '/' === path[2])) return true; // Windows device path
-  if ('\\\\' === path.substring(0, 2)) return true; // Microsoft Azure absolute path
+const uuidV4 = () => {
+  const result = crypto.randomBytes(16);
+  result[6] = (result[6] & 0x0f) | 0x40;
+  result[8] = (result[8] & 0x3f) | 0x80;
+  return result;
 };
 
 /**
- * Flatten the given `arr`.
+ * Relays events for a given listener and emitter
  *
- * @param {Array} arr
- * @return {Array}
- * @api private
+ * @param {EventEmitter} listener the EventEmitter to listen to the events from
+ * @param {EventEmitter} emitter the EventEmitter to relay the events to
  */
+function relayEvents(listener, emitter, events) {
+  events.forEach(eventName => listener.on(eventName, event => emitter.emit(eventName, event)));
+}
 
-exports.flatten = deprecate.function(flatten,
-  'utils.flatten: use array-flatten npm module instead');
+function retrieveKerberos() {
+  let kerberos;
 
-/**
- * Normalize the given `type`, for example "html" becomes "text/html".
- *
- * @param {String} type
- * @return {Object}
- * @api private
- */
+  try {
+    kerberos = requireOptional('kerberos');
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') {
+      throw new Error('The `kerberos` module was not found. Please install it and try again.');
+    }
 
-exports.normalizeType = function(type){
-  return ~type.indexOf('/')
-    ? acceptParams(type)
-    : { value: mime.lookup(type), params: {} };
-};
-
-/**
- * Normalize `types`, for example "html" becomes "text/html".
- *
- * @param {Array} types
- * @return {Array}
- * @api private
- */
-
-exports.normalizeTypes = function(types){
-  var ret = [];
-
-  for (var i = 0; i < types.length; ++i) {
-    ret.push(exports.normalizeType(types[i]));
+    throw err;
   }
 
-  return ret;
+  return kerberos;
+}
+
+// Throw an error if an attempt to use EJSON is made when it is not installed
+const noEJSONError = function() {
+  throw new Error('The `mongodb-extjson` module was not found. Please install it and try again.');
 };
 
+// Facilitate loading EJSON optionally
+function retrieveEJSON() {
+  let EJSON = requireOptional('mongodb-extjson');
+  if (!EJSON) {
+    EJSON = {
+      parse: noEJSONError,
+      deserialize: noEJSONError,
+      serialize: noEJSONError,
+      stringify: noEJSONError,
+      setBSONModule: noEJSONError,
+      BSON: noEJSONError
+    };
+  }
+
+  return EJSON;
+}
+
 /**
- * Generate Content-Disposition header appropriate for the filename.
- * non-ascii filenames are urlencoded and a filename* parameter is added
+ * A helper function for determining `maxWireVersion` between legacy and new topology
+ * instances
  *
- * @param {String} filename
- * @return {String}
- * @api private
+ * @private
+ * @param {(Topology|Server)} topologyOrServer
  */
+function maxWireVersion(topologyOrServer) {
+  if (topologyOrServer) {
+    if (topologyOrServer.ismaster) {
+      return topologyOrServer.ismaster.maxWireVersion;
+    }
 
-exports.contentDisposition = deprecate.function(contentDisposition,
-  'utils.contentDisposition: use content-disposition npm module instead');
+    if (typeof topologyOrServer.lastIsMaster === 'function') {
+      const lastIsMaster = topologyOrServer.lastIsMaster();
+      if (lastIsMaster) {
+        return lastIsMaster.maxWireVersion;
+      }
+    }
 
-/**
- * Parse accept params `str` returning an
- * object with `.value`, `.quality` and `.params`.
- * also includes `.originalIndex` for stable sorting
- *
- * @param {String} str
- * @return {Object}
- * @api private
- */
-
-function acceptParams(str, index) {
-  var parts = str.split(/ *; */);
-  var ret = { value: parts[0], quality: 1, params: {}, originalIndex: index };
-
-  for (var i = 1; i < parts.length; ++i) {
-    var pms = parts[i].split(/ *= */);
-    if ('q' === pms[0]) {
-      ret.quality = parseFloat(pms[1]);
-    } else {
-      ret.params[pms[0]] = pms[1];
+    if (topologyOrServer.description) {
+      return topologyOrServer.description.maxWireVersion;
     }
   }
 
-  return ret;
+  return 0;
+}
+
+/*
+ * Checks that collation is supported by server.
+ *
+ * @param {Server} [server] to check against
+ * @param {object} [cmd] object where collation may be specified
+ * @param {function} [callback] callback function
+ * @return true if server does not support collation
+ */
+function collationNotSupported(server, cmd) {
+  return cmd && cmd.collation && maxWireVersion(server) < 5;
 }
 
 /**
- * Compile "etag" value to function.
+ * Checks if a given value is a Promise
  *
- * @param  {Boolean|String|Function} val
- * @return {Function}
- * @api private
+ * @param {*} maybePromise
+ * @return true if the provided value is a Promise
  */
-
-exports.compileETag = function(val) {
-  var fn;
-
-  if (typeof val === 'function') {
-    return val;
-  }
-
-  switch (val) {
-    case true:
-      fn = exports.wetag;
-      break;
-    case false:
-      break;
-    case 'strong':
-      fn = exports.etag;
-      break;
-    case 'weak':
-      fn = exports.wetag;
-      break;
-    default:
-      throw new TypeError('unknown value for etag function: ' + val);
-  }
-
-  return fn;
+function isPromiseLike(maybePromise) {
+  return maybePromise && typeof maybePromise.then === 'function';
 }
 
 /**
- * Compile "query parser" value to function.
+ * Applies the function `eachFn` to each item in `arr`, in parallel.
  *
- * @param  {String|Function} val
- * @return {Function}
- * @api private
+ * @param {array} arr an array of items to asynchronusly iterate over
+ * @param {function} eachFn A function to call on each item of the array. The callback signature is `(item, callback)`, where the callback indicates iteration is complete.
+ * @param {function} callback The callback called after every item has been iterated
  */
+function eachAsync(arr, eachFn, callback) {
+  arr = arr || [];
 
-exports.compileQueryParser = function compileQueryParser(val) {
-  var fn;
-
-  if (typeof val === 'function') {
-    return val;
+  let idx = 0;
+  let awaiting = 0;
+  for (idx = 0; idx < arr.length; ++idx) {
+    awaiting++;
+    eachFn(arr[idx], eachCallback);
   }
 
-  switch (val) {
-    case true:
-      fn = querystring.parse;
-      break;
-    case false:
-      fn = newObject;
-      break;
-    case 'extended':
-      fn = parseExtendedQueryString;
-      break;
-    case 'simple':
-      fn = querystring.parse;
-      break;
-    default:
-      throw new TypeError('unknown value for query parser function: ' + val);
+  if (awaiting === 0) {
+    callback();
+    return;
   }
 
-  return fn;
+  function eachCallback(err) {
+    awaiting--;
+    if (err) {
+      callback(err);
+      return;
+    }
+
+    if (idx === arr.length && awaiting <= 0) {
+      callback();
+    }
+  }
 }
 
-/**
- * Compile "proxy trust" value to function.
- *
- * @param  {Boolean|String|Number|Array|Function} val
- * @return {Function}
- * @api private
- */
+function eachAsyncSeries(arr, eachFn, callback) {
+  arr = arr || [];
 
-exports.compileTrust = function(val) {
-  if (typeof val === 'function') return val;
-
-  if (val === true) {
-    // Support plain true/false
-    return function(){ return true };
+  let idx = 0;
+  let awaiting = arr.length;
+  if (awaiting === 0) {
+    callback();
+    return;
   }
 
-  if (typeof val === 'number') {
-    // Support trusting hop count
-    return function(a, i){ return i < val };
+  function eachCallback(err) {
+    idx++;
+    awaiting--;
+    if (err) {
+      callback(err);
+      return;
+    }
+
+    if (idx === arr.length && awaiting <= 0) {
+      callback();
+      return;
+    }
+
+    eachFn(arr[idx], eachCallback);
   }
 
-  if (typeof val === 'string') {
-    // Support comma-separated values
-    val = val.split(/ *, */);
-  }
-
-  return proxyaddr.compile(val || []);
+  eachFn(arr[idx], eachCallback);
 }
 
-/**
- * Set the charset in a given Content-Type string.
- *
- * @param {String} type
- * @param {String} charset
- * @return {String}
- * @api private
- */
+function isUnifiedTopology(topology) {
+  return topology.description != null;
+}
 
-exports.setCharset = function setCharset(type, charset) {
-  if (!type || !charset) {
-    return type;
+function arrayStrictEqual(arr, arr2) {
+  if (!Array.isArray(arr) || !Array.isArray(arr2)) {
+    return false;
   }
 
-  // parse type
-  var parsed = contentType.parse(type);
+  return arr.length === arr2.length && arr.every((elt, idx) => elt === arr2[idx]);
+}
 
-  // set charset
-  parsed.parameters.charset = charset;
+function tagsStrictEqual(tags, tags2) {
+  const tagsKeys = Object.keys(tags);
+  const tags2Keys = Object.keys(tags2);
+  return tagsKeys.length === tags2Keys.length && tagsKeys.every(key => tags2[key] === tags[key]);
+}
 
-  // format type
-  return contentType.format(parsed);
+function errorStrictEqual(lhs, rhs) {
+  if (lhs === rhs) {
+    return true;
+  }
+
+  if ((lhs == null && rhs != null) || (lhs != null && rhs == null)) {
+    return false;
+  }
+
+  if (lhs.constructor.name !== rhs.constructor.name) {
+    return false;
+  }
+
+  if (lhs.message !== rhs.message) {
+    return false;
+  }
+
+  return true;
+}
+
+function makeStateMachine(stateTable) {
+  return function stateTransition(target, newState) {
+    const legalStates = stateTable[target.s.state];
+    if (legalStates && legalStates.indexOf(newState) < 0) {
+      throw new TypeError(
+        `illegal state transition from [${target.s.state}] => [${newState}], allowed: [${legalStates}]`
+      );
+    }
+
+    target.emit('stateChanged', target.s.state, newState);
+    target.s.state = newState;
+  };
+}
+
+function makeClientMetadata(options) {
+  options = options || {};
+
+  const metadata = {
+    driver: {
+      name: 'nodejs',
+      version: require('../../package.json').version
+    },
+    os: {
+      type: os.type(),
+      name: process.platform,
+      architecture: process.arch,
+      version: os.release()
+    },
+    platform: `'Node.js ${process.version}, ${os.endianness} (${
+      options.useUnifiedTopology ? 'unified' : 'legacy'
+    })`
+  };
+
+  // support optionally provided wrapping driver info
+  if (options.driverInfo) {
+    if (options.driverInfo.name) {
+      metadata.driver.name = `${metadata.driver.name}|${options.driverInfo.name}`;
+    }
+
+    if (options.driverInfo.version) {
+      metadata.version = `${metadata.driver.version}|${options.driverInfo.version}`;
+    }
+
+    if (options.driverInfo.platform) {
+      metadata.platform = `${metadata.platform}|${options.driverInfo.platform}`;
+    }
+  }
+
+  if (options.appname) {
+    // MongoDB requires the appname not exceed a byte length of 128
+    const buffer = Buffer.from(options.appname);
+    metadata.application = {
+      name: buffer.length > 128 ? buffer.slice(0, 128).toString('utf8') : options.appname
+    };
+  }
+
+  return metadata;
+}
+
+const noop = () => {};
+
+module.exports = {
+  uuidV4,
+  relayEvents,
+  collationNotSupported,
+  retrieveEJSON,
+  retrieveKerberos,
+  maxWireVersion,
+  isPromiseLike,
+  eachAsync,
+  eachAsyncSeries,
+  isUnifiedTopology,
+  arrayStrictEqual,
+  tagsStrictEqual,
+  errorStrictEqual,
+  makeStateMachine,
+  makeClientMetadata,
+  noop
 };
-
-/**
- * Create an ETag generator function, generating ETags with
- * the given options.
- *
- * @param {object} options
- * @return {function}
- * @private
- */
-
-function createETagGenerator (options) {
-  return function generateETag (body, encoding) {
-    var buf = !Buffer.isBuffer(body)
-      ? Buffer.from(body, encoding)
-      : body
-
-    return etag(buf, options)
-  }
-}
-
-/**
- * Parse an extended query string with qs.
- *
- * @return {Object}
- * @private
- */
-
-function parseExtendedQueryString(str) {
-  return qs.parse(str, {
-    allowPrototypes: true
-  });
-}
-
-/**
- * Return new empty object.
- *
- * @return {Object}
- * @api private
- */
-
-function newObject() {
-  return {};
-}
