@@ -1,238 +1,159 @@
 /*!
- * accepts
- * Copyright(c) 2014 Jonathan Ong
- * Copyright(c) 2015 Douglas Christopher Wilson
+ * bytes
+ * Copyright(c) 2012-2014 TJ Holowaychuk
+ * Copyright(c) 2015 Jed Watson
  * MIT Licensed
  */
 
-'use strict'
-
-/**
- * Module dependencies.
- * @private
- */
-
-var Negotiator = require('negotiator')
-var mime = require('mime-types')
+'use strict';
 
 /**
  * Module exports.
  * @public
  */
 
-module.exports = Accepts
+module.exports = bytes;
+module.exports.format = format;
+module.exports.parse = parse;
 
 /**
- * Create a new Accepts object for the given req.
- *
- * @param {object} req
- * @public
- */
-
-function Accepts (req) {
-  if (!(this instanceof Accepts)) {
-    return new Accepts(req)
-  }
-
-  this.headers = req.headers
-  this.negotiator = new Negotiator(req)
-}
-
-/**
- * Check if the given `type(s)` is acceptable, returning
- * the best match when true, otherwise `undefined`, in which
- * case you should respond with 406 "Not Acceptable".
- *
- * The `type` value may be a single mime type string
- * such as "application/json", the extension name
- * such as "json" or an array `["json", "html", "text/plain"]`. When a list
- * or array is given the _best_ match, if any is returned.
- *
- * Examples:
- *
- *     // Accept: text/html
- *     this.types('html');
- *     // => "html"
- *
- *     // Accept: text/*, application/json
- *     this.types('html');
- *     // => "html"
- *     this.types('text/html');
- *     // => "text/html"
- *     this.types('json', 'text');
- *     // => "json"
- *     this.types('application/json');
- *     // => "application/json"
- *
- *     // Accept: text/*, application/json
- *     this.types('image/png');
- *     this.types('png');
- *     // => undefined
- *
- *     // Accept: text/*;q=.5, application/json
- *     this.types(['html', 'json']);
- *     this.types('html', 'json');
- *     // => "json"
- *
- * @param {String|Array} types...
- * @return {String|Array|Boolean}
- * @public
- */
-
-Accepts.prototype.type =
-Accepts.prototype.types = function (types_) {
-  var types = types_
-
-  // support flattened arguments
-  if (types && !Array.isArray(types)) {
-    types = new Array(arguments.length)
-    for (var i = 0; i < types.length; i++) {
-      types[i] = arguments[i]
-    }
-  }
-
-  // no types, return all requested types
-  if (!types || types.length === 0) {
-    return this.negotiator.mediaTypes()
-  }
-
-  // no accept header, return first given type
-  if (!this.headers.accept) {
-    return types[0]
-  }
-
-  var mimes = types.map(extToMime)
-  var accepts = this.negotiator.mediaTypes(mimes.filter(validMime))
-  var first = accepts[0]
-
-  return first
-    ? types[mimes.indexOf(first)]
-    : false
-}
-
-/**
- * Return accepted encodings or best fit based on `encodings`.
- *
- * Given `Accept-Encoding: gzip, deflate`
- * an array sorted by quality is returned:
- *
- *     ['gzip', 'deflate']
- *
- * @param {String|Array} encodings...
- * @return {String|Array}
- * @public
- */
-
-Accepts.prototype.encoding =
-Accepts.prototype.encodings = function (encodings_) {
-  var encodings = encodings_
-
-  // support flattened arguments
-  if (encodings && !Array.isArray(encodings)) {
-    encodings = new Array(arguments.length)
-    for (var i = 0; i < encodings.length; i++) {
-      encodings[i] = arguments[i]
-    }
-  }
-
-  // no encodings, return all requested encodings
-  if (!encodings || encodings.length === 0) {
-    return this.negotiator.encodings()
-  }
-
-  return this.negotiator.encodings(encodings)[0] || false
-}
-
-/**
- * Return accepted charsets or best fit based on `charsets`.
- *
- * Given `Accept-Charset: utf-8, iso-8859-1;q=0.2, utf-7;q=0.5`
- * an array sorted by quality is returned:
- *
- *     ['utf-8', 'utf-7', 'iso-8859-1']
- *
- * @param {String|Array} charsets...
- * @return {String|Array}
- * @public
- */
-
-Accepts.prototype.charset =
-Accepts.prototype.charsets = function (charsets_) {
-  var charsets = charsets_
-
-  // support flattened arguments
-  if (charsets && !Array.isArray(charsets)) {
-    charsets = new Array(arguments.length)
-    for (var i = 0; i < charsets.length; i++) {
-      charsets[i] = arguments[i]
-    }
-  }
-
-  // no charsets, return all requested charsets
-  if (!charsets || charsets.length === 0) {
-    return this.negotiator.charsets()
-  }
-
-  return this.negotiator.charsets(charsets)[0] || false
-}
-
-/**
- * Return accepted languages or best fit based on `langs`.
- *
- * Given `Accept-Language: en;q=0.8, es, pt`
- * an array sorted by quality is returned:
- *
- *     ['es', 'pt', 'en']
- *
- * @param {String|Array} langs...
- * @return {Array|String}
- * @public
- */
-
-Accepts.prototype.lang =
-Accepts.prototype.langs =
-Accepts.prototype.language =
-Accepts.prototype.languages = function (languages_) {
-  var languages = languages_
-
-  // support flattened arguments
-  if (languages && !Array.isArray(languages)) {
-    languages = new Array(arguments.length)
-    for (var i = 0; i < languages.length; i++) {
-      languages[i] = arguments[i]
-    }
-  }
-
-  // no languages, return all requested languages
-  if (!languages || languages.length === 0) {
-    return this.negotiator.languages()
-  }
-
-  return this.negotiator.languages(languages)[0] || false
-}
-
-/**
- * Convert extnames to mime.
- *
- * @param {String} type
- * @return {String}
+ * Module variables.
  * @private
  */
 
-function extToMime (type) {
-  return type.indexOf('/') === -1
-    ? mime.lookup(type)
-    : type
+var formatThousandsRegExp = /\B(?=(\d{3})+(?!\d))/g;
+
+var formatDecimalsRegExp = /(?:\.0*|(\.[^0]+)0+)$/;
+
+var map = {
+  b:  1,
+  kb: 1 << 10,
+  mb: 1 << 20,
+  gb: 1 << 30,
+  tb: ((1 << 30) * 1024)
+};
+
+var parseRegExp = /^((-|\+)?(\d+(?:\.\d+)?)) *(kb|mb|gb|tb)$/i;
+
+/**
+ * Convert the given value in bytes into a string or parse to string to an integer in bytes.
+ *
+ * @param {string|number} value
+ * @param {{
+ *  case: [string],
+ *  decimalPlaces: [number]
+ *  fixedDecimals: [boolean]
+ *  thousandsSeparator: [string]
+ *  unitSeparator: [string]
+ *  }} [options] bytes options.
+ *
+ * @returns {string|number|null}
+ */
+
+function bytes(value, options) {
+  if (typeof value === 'string') {
+    return parse(value);
+  }
+
+  if (typeof value === 'number') {
+    return format(value, options);
+  }
+
+  return null;
 }
 
 /**
- * Check if mime is valid.
+ * Format the given value in bytes into a string.
  *
- * @param {String} type
- * @return {String}
- * @private
+ * If the value is negative, it is kept as such. If it is a float,
+ * it is rounded.
+ *
+ * @param {number} value
+ * @param {object} [options]
+ * @param {number} [options.decimalPlaces=2]
+ * @param {number} [options.fixedDecimals=false]
+ * @param {string} [options.thousandsSeparator=]
+ * @param {string} [options.unit=]
+ * @param {string} [options.unitSeparator=]
+ *
+ * @returns {string|null}
+ * @public
  */
 
-function validMime (type) {
-  return typeof type === 'string'
+function format(value, options) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  var mag = Math.abs(value);
+  var thousandsSeparator = (options && options.thousandsSeparator) || '';
+  var unitSeparator = (options && options.unitSeparator) || '';
+  var decimalPlaces = (options && options.decimalPlaces !== undefined) ? options.decimalPlaces : 2;
+  var fixedDecimals = Boolean(options && options.fixedDecimals);
+  var unit = (options && options.unit) || '';
+
+  if (!unit || !map[unit.toLowerCase()]) {
+    if (mag >= map.tb) {
+      unit = 'TB';
+    } else if (mag >= map.gb) {
+      unit = 'GB';
+    } else if (mag >= map.mb) {
+      unit = 'MB';
+    } else if (mag >= map.kb) {
+      unit = 'KB';
+    } else {
+      unit = 'B';
+    }
+  }
+
+  var val = value / map[unit.toLowerCase()];
+  var str = val.toFixed(decimalPlaces);
+
+  if (!fixedDecimals) {
+    str = str.replace(formatDecimalsRegExp, '$1');
+  }
+
+  if (thousandsSeparator) {
+    str = str.replace(formatThousandsRegExp, thousandsSeparator);
+  }
+
+  return str + unitSeparator + unit;
+}
+
+/**
+ * Parse the string value into an integer in bytes.
+ *
+ * If no unit is given, it is assumed the value is in bytes.
+ *
+ * @param {number|string} val
+ *
+ * @returns {number|null}
+ * @public
+ */
+
+function parse(val) {
+  if (typeof val === 'number' && !isNaN(val)) {
+    return val;
+  }
+
+  if (typeof val !== 'string') {
+    return null;
+  }
+
+  // Test if the string passed is valid
+  var results = parseRegExp.exec(val);
+  var floatValue;
+  var unit = 'b';
+
+  if (!results) {
+    // Nothing could be extracted from the given string
+    floatValue = parseInt(val, 10);
+    unit = 'b'
+  } else {
+    // Retrieve the value and the unit
+    floatValue = parseFloat(results[1]);
+    unit = results[4].toLowerCase();
+  }
+
+  return Math.floor(map[unit] * floatValue);
 }

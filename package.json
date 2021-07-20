@@ -1,64 +1,82 @@
 {
-  "_from": "array-flatten@1.1.1",
-  "_id": "array-flatten@1.1.1",
+  "_from": "bytes@3.0.0",
+  "_id": "bytes@3.0.0",
   "_inBundle": false,
-  "_integrity": "sha1-ml9pkFGx5wczKPKgCJaLZOopVdI=",
-  "_location": "/array-flatten",
+  "_integrity": "sha1-0ygVQE1olpn4Wk6k+odV3ROpYEg=",
+  "_location": "/bytes",
   "_phantomChildren": {},
   "_requested": {
     "type": "version",
     "registry": true,
-    "raw": "array-flatten@1.1.1",
-    "name": "array-flatten",
-    "escapedName": "array-flatten",
-    "rawSpec": "1.1.1",
+    "raw": "bytes@3.0.0",
+    "name": "bytes",
+    "escapedName": "bytes",
+    "rawSpec": "3.0.0",
     "saveSpec": null,
-    "fetchSpec": "1.1.1"
+    "fetchSpec": "3.0.0"
   },
   "_requiredBy": [
-    "/express"
+    "/body-parser",
+    "/raw-body"
   ],
-  "_resolved": "https://registry.npmjs.org/array-flatten/-/array-flatten-1.1.1.tgz",
-  "_shasum": "9a5f699051b1e7073328f2a008968b64ea2955d2",
-  "_spec": "array-flatten@1.1.1",
-  "_where": "C:\\Users\\dell\\Desktop\\ecom\\node_modules\\express",
+  "_resolved": "https://registry.npmjs.org/bytes/-/bytes-3.0.0.tgz",
+  "_shasum": "d32815404d689699f85a4ea4fa8755dd13a96048",
+  "_spec": "bytes@3.0.0",
+  "_where": "C:\\Users\\dell\\Desktop\\ecom\\node_modules\\body-parser",
   "author": {
-    "name": "Blake Embrey",
-    "email": "hello@blakeembrey.com",
-    "url": "http://blakeembrey.me"
+    "name": "TJ Holowaychuk",
+    "email": "tj@vision-media.ca",
+    "url": "http://tjholowaychuk.com"
   },
   "bugs": {
-    "url": "https://github.com/blakeembrey/array-flatten/issues"
+    "url": "https://github.com/visionmedia/bytes.js/issues"
   },
   "bundleDependencies": false,
+  "contributors": [
+    {
+      "name": "Jed Watson",
+      "email": "jed.watson@me.com"
+    },
+    {
+      "name": "Théo FIDRY",
+      "email": "theo.fidry@gmail.com"
+    }
+  ],
   "deprecated": false,
-  "description": "Flatten an array of nested arrays into a single flat array",
+  "description": "Utility to parse a string bytes to bytes and vice-versa",
   "devDependencies": {
-    "istanbul": "^0.3.13",
-    "mocha": "^2.2.4",
-    "pre-commit": "^1.0.7",
-    "standard": "^3.7.3"
+    "mocha": "2.5.3",
+    "nyc": "10.3.2"
+  },
+  "engines": {
+    "node": ">= 0.8"
   },
   "files": [
-    "array-flatten.js",
-    "LICENSE"
+    "History.md",
+    "LICENSE",
+    "Readme.md",
+    "index.js"
   ],
-  "homepage": "https://github.com/blakeembrey/array-flatten",
+  "homepage": "https://github.com/visionmedia/bytes.js#readme",
   "keywords": [
-    "array",
-    "flatten",
-    "arguments",
-    "depth"
+    "byte",
+    "bytes",
+    "utility",
+    "parse",
+    "parser",
+    "convert",
+    "converter"
   ],
   "license": "MIT",
-  "main": "array-flatten.js",
-  "name": "array-flatten",
+  "name": "bytes",
   "repository": {
     "type": "git",
-    "url": "git://github.com/blakeembrey/array-flatten.git"
+    "url": "git+https://github.com/visionmedia/bytes.js.git"
   },
   "scripts": {
-    "test": "istanbul cover _mocha -- -R spec"
+    "test": "mocha --check-leaks --reporter spec",
+    "test-ci": "nyc --reporter=text npm test",
+    "test-cov": "nyc --reporter=html --reporter=text npm test"
   },
-  "version": "1.1.1"
+  "version": "3.0.0"
 }
