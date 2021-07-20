@@ -1,30 +1,25 @@
-"use strict";
-module.exports = function(Promise, INTERNAL) {
-var PromiseReduce = Promise.reduce;
-var PromiseAll = Promise.all;
+'use strict';
 
-function promiseAllThis() {
-    return PromiseAll(this);
-}
+module.exports = function each(arr, cb, done) {
+  if (arr.length === 0) {
+    return done();
+  }
 
-function PromiseMapSeries(promises, fn) {
-    return PromiseReduce(promises, fn, INTERNAL, INTERNAL);
-}
+  let remaining = arr.length;
+  let err = null;
+  for (const v of arr) {
+    cb(v, function(_err) {
+      if (err != null) {
+        return;
+      }
+      if (_err != null) {
+        err = _err;
+        return done(err);
+      }
 
-Promise.prototype.each = function (fn) {
-    return PromiseReduce(this, fn, INTERNAL, 0)
-              ._then(promiseAllThis, undefined, undefined, this, undefined);
+      if (--remaining <= 0) {
+        return done();
+      }
+    });
+  }
 };
-
-Promise.prototype.mapSeries = function (fn) {
-    return PromiseReduce(this, fn, INTERNAL, INTERNAL);
-};
-
-Promise.each = function (promises, fn) {
-    return PromiseReduce(promises, fn, INTERNAL, 0)
-              ._then(promiseAllThis, undefined, undefined, promises, undefined);
-};
-
-Promise.mapSeries = PromiseMapSeries;
-};
-

@@ -5,10 +5,6 @@
 
 'use strict';
 
-const Binary = require('bson').Binary;
-
-/*!
- * Module exports.
- */
+const Binary = require('mongodb').Binary;
 
 module.exports = exports = Binary;
