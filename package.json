@@ -1,82 +1,62 @@
 {
-  "_from": "bytes@3.0.0",
-  "_id": "bytes@3.0.0",
+  "_from": "safe-buffer@5.2.0",
+  "_id": "safe-buffer@5.2.0",
   "_inBundle": false,
-  "_integrity": "sha1-0ygVQE1olpn4Wk6k+odV3ROpYEg=",
-  "_location": "/bytes",
+  "_integrity": "sha512-fZEwUGbVl7kouZs1jCdMLdt95hdIv0ZeHg6L7qPeciMZhZ+/gdesW4wgTARkrFWEpspjEATAzUGPG8N2jJiwbg==",
+  "_location": "/express-session/safe-buffer",
   "_phantomChildren": {},
   "_requested": {
     "type": "version",
     "registry": true,
-    "raw": "bytes@3.0.0",
-    "name": "bytes",
-    "escapedName": "bytes",
-    "rawSpec": "3.0.0",
+    "raw": "safe-buffer@5.2.0",
+    "name": "safe-buffer",
+    "escapedName": "safe-buffer",
+    "rawSpec": "5.2.0",
     "saveSpec": null,
-    "fetchSpec": "3.0.0"
+    "fetchSpec": "5.2.0"
   },
   "_requiredBy": [
-    "/body-parser",
-    "/raw-body"
+    "/express-session"
   ],
-  "_resolved": "https://registry.npmjs.org/bytes/-/bytes-3.0.0.tgz",
-  "_shasum": "d32815404d689699f85a4ea4fa8755dd13a96048",
-  "_spec": "bytes@3.0.0",
-  "_where": "C:\\Users\\dell\\Desktop\\ecom\\node_modules\\body-parser",
+  "_resolved": "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.0.tgz",
+  "_shasum": "b74daec49b1148f88c64b68d49b1e815c1f2f519",
+  "_spec": "safe-buffer@5.2.0",
+  "_where": "C:\\Users\\dell\\Desktop\\ecom\\node_modules\\express-session",
   "author": {
-    "name": "TJ Holowaychuk",
-    "email": "tj@vision-media.ca",
-    "url": "http://tjholowaychuk.com"
+    "name": "Feross Aboukhadijeh",
+    "email": "feross@feross.org",
+    "url": "http://feross.org"
   },
   "bugs": {
-    "url": "https://github.com/visionmedia/bytes.js/issues"
+    "url": "https://github.com/feross/safe-buffer/issues"
   },
   "bundleDependencies": false,
-  "contributors": [
-    {
-      "name": "Jed Watson",
-      "email": "jed.watson@me.com"
-    },
-    {
-      "name": "Théo FIDRY",
-      "email": "theo.fidry@gmail.com"
-    }
-  ],
   "deprecated": false,
-  "description": "Utility to parse a string bytes to bytes and vice-versa",
+  "description": "Safer Node.js Buffer API",
   "devDependencies": {
-    "mocha": "2.5.3",
-    "nyc": "10.3.2"
+    "standard": "*",
+    "tape": "^4.0.0"
   },
-  "engines": {
-    "node": ">= 0.8"
-  },
-  "files": [
-    "History.md",
-    "LICENSE",
-    "Readme.md",
-    "index.js"
-  ],
-  "homepage": "https://github.com/visionmedia/bytes.js#readme",
+  "homepage": "https://github.com/feross/safe-buffer",
   "keywords": [
-    "byte",
-    "bytes",
-    "utility",
-    "parse",
-    "parser",
-    "convert",
-    "converter"
+    "buffer",
+    "buffer allocate",
+    "node security",
+    "safe",
+    "safe-buffer",
+    "security",
+    "uninitialized"
   ],
   "license": "MIT",
-  "name": "bytes",
+  "main": "index.js",
+  "name": "safe-buffer",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/visionmedia/bytes.js.git"
+    "url": "git://github.com/feross/safe-buffer.git"
   },
   "scripts": {
-    "test": "mocha --check-leaks --reporter spec",
-    "test-ci": "nyc --reporter=text npm test",
-    "test-cov": "nyc --reporter=html --reporter=text npm test"
+    "test": "standard && tape test/*.js"
   },
-  "version": "3.0.0"
+  "types": "index.d.ts",
+  "version": "5.2.0"
 }
