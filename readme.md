@@ -1,18 +1,31 @@
-process-nextick-args
-=====
+# saslprep
+[![Build Status](https://travis-ci.org/reklatsmasters/saslprep.svg?branch=master)](https://travis-ci.org/reklatsmasters/saslprep)
+[![npm](https://img.shields.io/npm/v/saslprep.svg)](https://npmjs.org/package/saslprep)
+[![node](https://img.shields.io/node/v/saslprep.svg)](https://npmjs.org/package/saslprep)
+[![license](https://img.shields.io/npm/l/saslprep.svg)](https://npmjs.org/package/saslprep)
+[![downloads](https://img.shields.io/npm/dm/saslprep.svg)](https://npmjs.org/package/saslprep)
 
-[![Build Status](https://travis-ci.org/calvinmetcalf/process-nextick-args.svg?branch=master)](https://travis-ci.org/calvinmetcalf/process-nextick-args)
+Stringprep Profile for User Names and Passwords, [rfc4013](https://tools.ietf.org/html/rfc4013)
 
-```bash
-npm install --save process-nextick-args
-```
-
-Always be able to pass arguments to process.nextTick, no matter the platform
+### Usage
 
 ```js
-var pna = require('process-nextick-args');
+const saslprep = require('saslprep')
 
-pna.nextTick(function (a, b, c) {
-  console.log(a, b, c);
-}, 'step', 3,  'profit');
+saslprep('password\u00AD') // password
+saslprep('password\u0007') // Error: prohibited character
 ```
+
+### API
+
+##### `saslprep(input: String, opts: Options): String`
+
+Normalize user name or password.
+
+##### `Options.allowUnassigned: bool`
+
+A special behavior for unassigned code points, see https://tools.ietf.org/html/rfc4013#section-2.5. Disabled by default.
+
+## License
+
+MIT, 2017-2019 (c) Dmitriy Tsvettsikh

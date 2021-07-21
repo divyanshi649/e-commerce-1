@@ -1,7 +1,5 @@
 
 test:
-	@./node_modules/.bin/mocha \
-		--require should \
-		--reporter spec
+	@./node_modules/.bin/mocha $(T) --async-only $(TESTS)
 
 .PHONY: test
