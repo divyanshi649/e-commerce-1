@@ -1,31 +1,79 @@
-/* eslint-env mocha */
-'use strict'
+var alloc = require('buffer-alloc')
+var tape = require('tape')
+var bitfield = require('./')
 
-const assert = require('assert')
-const scmp = require('../')
+tape('set and get', function (t) {
+  var bits = bitfield()
 
-// use safe-buffer in case Buffer.from in newer versions of node aren't
-// available
-const Buffer = require('safe-buffer').Buffer
+  t.same(bits.get(0), false, 'first bit is false')
+  bits.set(0, true)
+  t.same(bits.get(0), true, 'first bit is true')
+  t.same(bits.get(1), false, 'second bit is false')
+  bits.set(0, false)
+  t.same(bits.get(0), false, 'first bit is reset')
+  t.end()
+})
 
-describe('scmp', function () {
-  it('should return true for identical strings', function () {
-    assert(scmp(Buffer.from('a', 'utf8'), Buffer.from('a', 'utf8')))
-    assert(scmp(Buffer.from('abc', 'utf8'), Buffer.from('abc', 'utf8')))
-    assert(scmp(Buffer.from('e727d1464ae12436e899a726da5b2f11d8381b26', 'hex'), Buffer.from('e727d1464ae12436e899a726da5b2f11d8381b26', 'hex')))
-  })
+tape('set large and get', function (t) {
+  var bits = bitfield()
 
-  it('should return false for non-identical strings', function () {
-    assert(!scmp(Buffer.from('a', 'utf8'), Buffer.from('b', 'utf8')))
-    assert(!scmp(Buffer.from('abc', 'utf8'), Buffer.from('b', 'utf8')))
-    assert(!scmp(Buffer.from('e727d1464ae12436e899a726da5b2f11d8381b26', 'hex'), Buffer.from('e727e1b80e448a213b392049888111e1779a52db', 'hex')))
-  })
+  t.same(bits.get(9999999999999), false, 'large bit is false')
+  bits.set(9999999999999, true)
+  t.same(bits.get(9999999999999), true, 'large bit is true')
+  t.same(bits.get(9999999999999 + 1), false, 'large bit + 1 is false')
+  bits.set(9999999999999, false)
+  t.same(bits.get(9999999999999), false, 'large bit is reset')
+  t.end()
+})
 
-  it('should throw errors for non-Buffers', function () {
-    assert.throws(scmp.bind(null, 'a', {}))
-    assert.throws(scmp.bind(null, {}, 'b'))
-    assert.throws(scmp.bind(null, 1, 2))
-    assert.throws(scmp.bind(null, undefined, 2))
-    assert.throws(scmp.bind(null, null, 2))
-  })
+tape('get and set buffer', function (t) {
+  var bits = bitfield({trackUpdates: true})
+
+  t.same(bits.pages.get(0, true), undefined)
+  t.same(bits.pages.get(Math.floor(9999999999999 / 8 / 1024), true), undefined)
+  bits.set(9999999999999, true)
+
+  var bits2 = bitfield()
+  var upd = bits.pages.lastUpdate()
+  bits2.pages.set(Math.floor(upd.offset / 1024), upd.buffer)
+  t.same(bits2.get(9999999999999), true, 'bit is set')
+  t.end()
+})
+
+tape('toBuffer', function (t) {
+  var bits = bitfield()
+
+  t.same(bits.toBuffer(), alloc(0))
+
+  bits.set(0, true)
+
+  t.same(bits.toBuffer(), bits.pages.get(0).buffer)
+
+  bits.set(9000, true)
+
+  t.same(bits.toBuffer(), Buffer.concat([bits.pages.get(0).buffer, bits.pages.get(1).buffer]))
+  t.end()
+})
+
+tape('pass in buffer', function (t) {
+  var bits = bitfield()
+
+  bits.set(0, true)
+  bits.set(9000, true)
+
+  var clone = bitfield(bits.toBuffer())
+
+  t.same(clone.get(0), true)
+  t.same(clone.get(9000), true)
+  t.end()
+})
+
+tape('set small buffer', function (t) {
+  var buf = alloc(1)
+  buf[0] = 255
+  var bits = bitfield(buf)
+
+  t.same(bits.get(0), true)
+  t.same(bits.pages.get(0).buffer.length, bits.pageSize)
+  t.end()
 })

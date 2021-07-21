@@ -1,93 +1,78 @@
 {
-  "_from": "sift@13.5.2",
-  "_id": "sift@13.5.2",
+  "_from": "vary@~1.1.2",
+  "_id": "vary@1.1.2",
   "_inBundle": false,
-  "_integrity": "sha512-+gxdEOMA2J+AI+fVsCqeNn7Tgx3M9ZN9jdi95939l1IJ8cZsqS8sqpJyOkic2SJk+1+98Uwryt/gL6XDaV+UZA==",
-  "_location": "/sift",
+  "_integrity": "sha1-IpnwLG3tMNSllhsLn3RSShj2NPw=",
+  "_location": "/vary",
   "_phantomChildren": {},
   "_requested": {
-    "type": "version",
+    "type": "range",
     "registry": true,
-    "raw": "sift@13.5.2",
-    "name": "sift",
-    "escapedName": "sift",
-    "rawSpec": "13.5.2",
+    "raw": "vary@~1.1.2",
+    "name": "vary",
+    "escapedName": "vary",
+    "rawSpec": "~1.1.2",
     "saveSpec": null,
-    "fetchSpec": "13.5.2"
+    "fetchSpec": "~1.1.2"
   },
   "_requiredBy": [
-    "/mongoose"
+    "/express"
   ],
-  "_resolved": "https://registry.npmjs.org/sift/-/sift-13.5.2.tgz",
-  "_shasum": "24a715e13c617b086166cd04917d204a591c9da6",
-  "_spec": "sift@13.5.2",
-  "_where": "C:\\Users\\dell\\Desktop\\ecom\\node_modules\\mongoose",
+  "_resolved": "https://registry.npmjs.org/vary/-/vary-1.1.2.tgz",
+  "_shasum": "2299f02c6ded30d4a5961b0b9f74524a18f634fc",
+  "_spec": "vary@~1.1.2",
+  "_where": "C:\\Users\\dell\\Desktop\\ecom\\node_modules\\express",
   "author": {
-    "name": "Craig Condon",
-    "email": "craig.j.condon@gmail.com"
+    "name": "Douglas Christopher Wilson",
+    "email": "doug@somethingdoug.com"
   },
   "bugs": {
-    "url": "https://github.com/crcn/sift.js/issues"
+    "url": "https://github.com/jshttp/vary/issues"
   },
   "bundleDependencies": false,
   "deprecated": false,
-  "description": "MongoDB query filtering in JavaScript",
+  "description": "Manipulate the HTTP Vary header",
   "devDependencies": {
-    "@rollup/plugin-replace": "^2.3.2",
-    "@rollup/plugin-typescript": "^4.1.1",
-    "@types/node": "^13.7.0",
-    "bson": "^4.0.3",
-    "eval": "^0.1.4",
-    "husky": "^1.2.1",
-    "immutable": "^3.7.6",
-    "mocha": "8.3.2",
-    "mongodb": "^3.6.6",
-    "prettier": "1.15.3",
-    "pretty-quick": "^1.11.1",
-    "rimraf": "^3.0.2",
-    "rollup": "^2.7.2",
-    "rollup-plugin-terser": "^7.0.2",
-    "tslib": "^2.0.0",
-    "typescript": "^3.8.3"
+    "beautify-benchmark": "0.2.4",
+    "benchmark": "2.1.4",
+    "eslint": "3.19.0",
+    "eslint-config-standard": "10.2.1",
+    "eslint-plugin-import": "2.7.0",
+    "eslint-plugin-markdown": "1.0.0-beta.6",
+    "eslint-plugin-node": "5.1.1",
+    "eslint-plugin-promise": "3.5.0",
+    "eslint-plugin-standard": "3.0.1",
+    "istanbul": "0.4.5",
+    "mocha": "2.5.3",
+    "supertest": "1.1.0"
   },
-  "engines": {},
-  "es2015": "./es/index.js",
+  "engines": {
+    "node": ">= 0.8"
+  },
   "files": [
-    "es",
-    "es5m",
-    "lib",
-    "*.d.ts",
-    "*.js.map",
-    "index.js",
-    "sift.csp.min.js",
-    "sift.min.js",
-    "MIT-LICENSE.txt"
+    "HISTORY.md",
+    "LICENSE",
+    "README.md",
+    "index.js"
   ],
-  "homepage": "https://github.com/crcn/sift.js#readme",
-  "husky": {
-    "hooks": {
-      "pre-commit": "pretty-quick --staged"
-    }
-  },
+  "homepage": "https://github.com/jshttp/vary#readme",
+  "keywords": [
+    "http",
+    "res",
+    "vary"
+  ],
   "license": "MIT",
-  "main": "./index.js",
-  "module": "./es5m/index.js",
-  "name": "sift",
+  "name": "vary",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/crcn/sift.js.git"
+    "url": "git+https://github.com/jshttp/vary.git"
   },
   "scripts": {
-    "build": "rollup -c",
-    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly --outDir lib",
-    "clean": "rimraf lib es5m es",
-    "prebuild": "npm run clean && npm run build:types",
-    "prepublishOnly": "npm run build && npm run test",
-    "test": "npm run test:spec && npm run test:types",
-    "test:spec": "mocha ./test -R spec",
-    "test:types": "cd test && tsc types.ts --noEmit"
+    "bench": "node benchmark/index.js",
+    "lint": "eslint --plugin markdown --ext js,md .",
+    "test": "mocha --reporter spec --bail --check-leaks test/",
+    "test-cov": "istanbul cover node_modules/mocha/bin/_mocha -- --reporter dot --check-leaks test/",
+    "test-travis": "istanbul cover node_modules/mocha/bin/_mocha --report lcovonly -- --reporter spec --check-leaks test/"
   },
-  "sideEffects": false,
-  "typings": "./index.d.ts",
-  "version": "13.5.2"
+  "version": "1.1.2"
 }
