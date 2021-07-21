@@ -1,35 +1,15 @@
-'use strict';
-const MongoError = require('../core/error').MongoError;
+const generaterr = require('generaterr');
 
-/**
- * An error indicating a connection pool is closed
- *
- * @property {string} address The address of the connection pool
- * @extends MongoError
- */
-class PoolClosedError extends MongoError {
-  constructor(pool) {
-    super('Attempted to check out a connection from closed connection pool');
-    this.name = 'MongoPoolClosedError';
-    this.address = pool.address;
-  }
-}
-
-/**
- * An error thrown when a request to check out a connection times out
- *
- * @property {string} address The address of the connection pool
- * @extends MongoError
- */
-class WaitQueueTimeoutError extends MongoError {
-  constructor(pool) {
-    super('Timed out while checking out a connection from connection pool');
-    this.name = 'MongoWaitQueueTimeoutError';
-    this.address = pool.address;
-  }
-}
+const AuthenticationError = generaterr('AuthenticationError');
 
 module.exports = {
-  PoolClosedError,
-  WaitQueueTimeoutError
+  AuthenticationError,
+  IncorrectUsernameError: generaterr('IncorrectUsernameError', null, { inherits: AuthenticationError }),
+  IncorrectPasswordError: generaterr('IncorrectPasswordError', null, { inherits: AuthenticationError }),
+  MissingUsernameError: generaterr('MissingUsernameError', null, { inherits: AuthenticationError }),
+  MissingPasswordError: generaterr('MissingPasswordError', null, { inherits: AuthenticationError }),
+  UserExistsError: generaterr('UserExistsError', null, { inherits: AuthenticationError }),
+  NoSaltValueStoredError: generaterr('NoSaltValueStoredError', null, { inherits: AuthenticationError }),
+  AttemptTooSoonError: generaterr('AttemptTooSoonError', null, { inherits: AuthenticationError }),
+  TooManyAttemptsError: generaterr('TooManyAttemptsError', null, { inherits: AuthenticationError })
 };
